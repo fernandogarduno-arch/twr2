@@ -83,7 +83,7 @@ const db = {
   async saveSetting(key, value) { const { error } = await sb.from("app_settings").upsert({ key, value, updated_at: new Date().toISOString() }); if (error) throw error; },
   async saveCustomRef(r) { const { data, error } = await sb.from("custom_referencias").upsert(r, { onConflict: "brand,model,ref_number" }).select(); if (error) throw error; return data?.[0]; },
   async loadCatalogPublic() {
-    const { data } = await sb.from("piezas").select("*").eq("publish_catalog", true).eq("status", "Disponible").order("catalog_order");
+    const { data } = await sb.from("piezas").select("*").eq("publish_catalog", true).order("catalog_order");
     const { data: fotos } = await sb.from("pieza_fotos").select("*").is("deleted_at", null);
     const { data: stData } = await sb.from("app_settings").select("*").in("key", ["whatsapp_number", "business_name", "catalog_config"]);
     return { pieces: data || [], fotos: fotos || [], settings: Object.fromEntries((stData || []).map(s => [s.key, s.value])) };
@@ -534,8 +534,14 @@ function PublicCatalog() {
             <h1 className="fd text-2xl font-bold text-white">{p.model || p.name}</h1>
             {p.ref && <div className="fb text-sm mt-1" style={{ color: "var(--cd)" }}>Ref. {p.ref}</div>}
           </div>
-          {showPrices && p.price_asked > 0 && (
+          {showPrices && p.price_asked > 0 && p.status === "Disponible" && (
             <div className="fd text-3xl font-bold" style={{ color: "var(--gd)" }}>{fmxn(p.price_asked)} <span className="text-base font-normal" style={{ color: "var(--cd)" }}>MXN</span></div>
+          )}
+          {p.status !== "Disponible" && (
+            <div className="rounded-xl p-3 text-center" style={{ background: "rgba(251,113,133,.08)", border: "1px solid rgba(251,113,133,.15)" }}>
+              <div className="fb text-sm font-bold uppercase tracking-widest" style={{ color: "#FB7185" }}>Vendido</div>
+              <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Esta pieza ya no está disponible</div>
+            </div>
           )}
           <div className="grid grid-cols-2 gap-3">
             {p.condition && <div className="p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)" }}><div className="fb text-xs" style={{ color: "var(--cd)" }}>Condición</div><div className="fb text-sm font-semibold text-white">{p.condition}</div></div>}
@@ -552,11 +558,19 @@ function PublicCatalog() {
         {/* WhatsApp CTA */}
         {waNum && (
           <div className="fixed bottom-0 left-0 right-0 p-4" style={{ background: "linear-gradient(transparent, rgba(11,29,51,.95) 30%)" }}>
-            <a href={waLink(p)} target="_blank" rel="noopener"
-              className="fb flex items-center justify-center gap-3 w-full py-4 rounded-2xl text-white font-bold text-base"
-              style={{ background: "#25D366" }}>
-              <Ico d={IC.wa} s={22} />Consultar por WhatsApp
-            </a>
+            {p.status === "Disponible" ? (
+              <a href={waLink(p)} target="_blank" rel="noopener"
+                className="fb flex items-center justify-center gap-3 w-full py-4 rounded-2xl text-white font-bold text-base"
+                style={{ background: "#25D366" }}>
+                <Ico d={IC.wa} s={22} />Consultar por WhatsApp
+              </a>
+            ) : (
+              <a href={`https://wa.me/${waNum}?text=${encodeURIComponent(`Hola, vi que el ${p.name} (SKU: ${p.sku}) ya fue vendido. ¿Tienen algo similar disponible?`)}`} target="_blank" rel="noopener"
+                className="fb flex items-center justify-center gap-3 w-full py-4 rounded-2xl text-white font-bold text-base"
+                style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.15)" }}>
+                <Ico d={IC.wa} s={22} />¿Algo similar disponible?
+              </a>
+            )}
           </div>
         )}
       </div>
@@ -569,25 +583,28 @@ function PublicCatalog() {
       <div className="sticky top-0 z-20 px-4 py-4" style={{ background: "rgba(11,29,51,.95)", backdropFilter: "blur(10px)", borderBottom: "1px solid rgba(201,169,110,.1)" }}>
         <div className="text-center">
           <div className="fd text-xl font-bold text-white tracking-tight">{bizName}</div>
-          <div className="fb text-xs mt-0.5" style={{ color: "var(--gk)" }}>{pieces.length} pieza{pieces.length !== 1 ? "s" : ""} disponible{pieces.length !== 1 ? "s" : ""}</div>
+          <div className="fb text-xs mt-0.5" style={{ color: "var(--gk)" }}>{pieces.filter(p => p.status === "Disponible").length} disponible{pieces.filter(p => p.status === "Disponible").length !== 1 ? "s" : ""} · {pieces.filter(p => p.status !== "Disponible").length} vendida{pieces.filter(p => p.status !== "Disponible").length !== 1 ? "s" : ""}</div>
         </div>
       </div>
 
       {/* Grid */}
       <div className="grid grid-cols-2 gap-2 p-2 md:grid-cols-3 lg:grid-cols-4 md:gap-4 md:p-4">
-        {pieces.map(p => {
+        {[...pieces].sort((a, b) => (a.status === "Disponible" ? 0 : 1) - (b.status === "Disponible" ? 0 : 1)).map(p => {
           const pFotos = getFotos(p.id);
           const mainFoto = pFotos[0];
+          const sold = p.status !== "Disponible";
           return (
-            <button key={p.id} onClick={() => setSelected(p)} className="text-left rounded-2xl overflow-hidden transition-all hover:scale-[1.02] active:scale-[.98]" style={{ background: "var(--n2)", border: "1px solid rgba(255,255,255,.06)" }}>
+            <button key={p.id} onClick={() => setSelected(p)} className="text-left rounded-2xl overflow-hidden transition-all hover:scale-[1.02] active:scale-[.98]" style={{ background: "var(--n2)", border: "1px solid rgba(255,255,255,.06)", opacity: sold ? .7 : 1 }}>
               <div className="relative" style={{ aspectRatio: "1" }}>
-                {mainFoto ? <img src={mainFoto.url} alt={p.name} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center" style={{ background: "var(--ns)" }}><span className="text-4xl opacity-20">⌚</span></div>}
-                {pFotos.length > 1 && <div className="absolute top-2 right-2 fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(0,0,0,.6)", color: "white" }}>{pFotos.length} 📷</div>}
+                {mainFoto ? <img src={mainFoto.url} alt={p.name} className="w-full h-full object-cover" style={sold ? { filter: "grayscale(.4)" } : {}} /> : <div className="w-full h-full flex items-center justify-center" style={{ background: "var(--ns)" }}><span className="text-4xl opacity-20">⌚</span></div>}
+                {sold && <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,.45)" }}><span className="fb text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg" style={{ background: "rgba(251,113,133,.2)", color: "#FB7185", border: "1px solid rgba(251,113,133,.3)" }}>Vendido</span></div>}
+                {!sold && pFotos.length > 1 && <div className="absolute top-2 right-2 fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(0,0,0,.6)", color: "white" }}>{pFotos.length} 📷</div>}
               </div>
               <div className="p-3">
                 <div className="fb text-xs" style={{ color: "var(--gk)" }}>{p.brand}</div>
                 <div className="fb text-sm font-semibold text-white truncate">{p.model || p.name}</div>
-                {showPrices && p.price_asked > 0 && <div className="fd text-base font-bold mt-1" style={{ color: "var(--gd)" }}>{fmxn(p.price_asked)}</div>}
+                {showPrices && p.price_asked > 0 && !sold && <div className="fd text-base font-bold mt-1" style={{ color: "var(--gd)" }}>{fmxn(p.price_asked)}</div>}
+                {sold && <div className="fb text-xs font-bold mt-1" style={{ color: "#FB7185" }}>VENDIDO</div>}
               </div>
             </button>
           );
