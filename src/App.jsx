@@ -580,8 +580,9 @@ function PublicCatalog() {
             <div className="fd text-3xl font-bold" style={{ color: "var(--gd)" }}>{fmxn(p.price_asked)} <span className="text-base font-normal" style={{ color: "var(--cd)" }}>MXN</span></div>
           )}
           {p.status !== "Disponible" && (
-            <div className="rounded-xl p-3 text-center" style={{ background: "rgba(251,113,133,.08)", border: "1px solid rgba(251,113,133,.15)" }}>
+            <div className="rounded-xl p-3" style={{ background: "rgba(251,113,133,.08)", border: "1px solid rgba(251,113,133,.15)" }}>
               <div className="fb text-sm font-bold uppercase tracking-widest" style={{ color: "#FB7185" }}>Vendido</div>
+              {showPrices && p.price_dealer > 0 && <div className="fd text-lg font-bold mt-1" style={{ color: "#FB7185" }}>{fmxn(p.price_dealer)} <span className="text-sm font-normal line-through opacity-50" style={{ color: "var(--cd)" }}>{fmxn(p.price_asked)}</span></div>}
               <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Esta pieza ya no está disponible</div>
             </div>
           )}
@@ -645,8 +646,9 @@ function PublicCatalog() {
               <div className="p-3">
                 <div className="fb text-xs" style={{ color: "var(--gk)" }}>{p.brand}</div>
                 <div className="fb text-sm font-semibold text-white truncate">{p.model || p.name}</div>
-                {showPrices && p.price_asked > 0 && !sold && <div className="fd text-base font-bold mt-1" style={{ color: "var(--gd)" }}>{fmxn(p.price_asked)}</div>}
-                {sold && <div className="fb text-xs font-bold mt-1" style={{ color: "#FB7185" }}>VENDIDO</div>}
+                {showPrices && !sold && p.price_asked > 0 && <div className="fd text-base font-bold mt-1" style={{ color: "var(--gd)" }}>{fmxn(p.price_asked)}</div>}
+                {sold && showPrices && p.price_dealer > 0 && <div className="fd text-base font-bold mt-1" style={{ color: "#FB7185" }}><span className="line-through opacity-60">{fmxn(p.price_asked)}</span> {fmxn(p.price_dealer)}</div>}
+                {sold && !(showPrices && p.price_dealer > 0) && <div className="fb text-xs font-bold mt-1" style={{ color: "#FB7185" }}>VENDIDO</div>}
               </div>
             </button>
           );
