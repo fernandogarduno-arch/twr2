@@ -355,13 +355,14 @@ function AiRefValidator({ brand, model, refNum, onResult }) {
 }
 
 /* ═══ WDB SELECTOR WITH CUSTOM REF ═══ */
-function WatchRefSelector({ brand, model, refNum, onChange, customRefs }) {
+function WatchRefSelector({ brand, model, refNum, onChange, customRefs, onAiResult }) {
   const models = getModels(brand);
   const dbRefs = getRefs(brand, model);
   const customRefsForBM = (customRefs || []).filter(cr => cr.brand === brand && cr.model === model).map(cr => cr.ref_number);
   const allRefs = [...new Set([...dbRefs, ...customRefsForBM])];
   const [customMode, setCustomMode] = useState(false);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
 
   const handleRefChange = (v) => {
     if (v === "__custom__") { setCustomMode(true); onChange("ref", ""); }
@@ -371,7 +372,7 @@ function WatchRefSelector({ brand, model, refNum, onChange, customRefs }) {
   const handleSaveCustom = async () => {
     if (!brand || !refNum) return;
     try {
-      await db.saveCustomRef({ brand, model: model || "", ref_number: refNum });
+      await db.saveCustomRef({ brand, model: model || "", ref_number: refNum, ai_validated: aiResult?.valid || false, ai_response: aiResult || null });
       setShowSaveConfirm(false);
       alert("Referencia guardada en catálogo custom");
     } catch (e) { alert("Error: " + e.message); }
@@ -406,7 +407,7 @@ function WatchRefSelector({ brand, model, refNum, onChange, customRefs }) {
         )}
         {customMode && refNum && (
           <div className="flex items-center gap-2 mt-2">
-            <AiRefValidator brand={brand} model={model} refNum={refNum} onResult={() => setShowSaveConfirm(true)} />
+            <AiRefValidator brand={brand} model={model} refNum={refNum} onResult={(r) => { setAiResult(r); setShowSaveConfirm(true); if (onAiResult) onAiResult(r); }} />
             {showSaveConfirm && (
               <button type="button" onClick={handleSaveCustom} className="fb text-xs px-3 py-1.5 rounded-lg" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>Guardar al catálogo</button>
             )}
@@ -634,7 +635,8 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos, customRefs }) {
             if (field === "brand") sF(p => ({ ...p, brand: val, model: "", ref: "", name: val }));
             else if (field === "model") sF(p => ({ ...p, model: val, ref: getRefs(p.brand, val)[0] || "", name: autoName(p.brand, val) }));
             else u("ref", val);
-          }} />
+          }}
+          onAiResult={(r) => { if (r?.valid && r?.name) sF(p => ({ ...p, name: r.name })); }} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
           <Fl label="Nombre (auto)" hint="Marca + Modelo"><input className="ti" value={f.name} onChange={e => u("name", e.target.value)} style={{ fontWeight: 600 }} /></Fl>
           <Fl label="SKU" hint="Auto-asignado"><input className="ti" value={f.sku} readOnly /></Fl>
