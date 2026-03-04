@@ -136,8 +136,6 @@ const CLIENT_TIERS = ["Prospecto","Regular","VIP","Mayorista"];
 const xtLabel = v => EXIT_TYPES.find(e => e.v === v)?.l || v;
 const FUND_INFO = {
   FIC: { short:"Fondo de Inversión", full:"Fondo de Inversión Compartida", desc:"Fondo común. Utilidades se reparten según participación de socios.", icon:"🏦" },
-  FP1: { short:"Fondo Personal 1", full:"Fondo Personal 1 — Fernando", desc:"Operaciones independientes de Fernando. 100% utilidad.", icon:"👤" },
-  FP2: { short:"Fondo Personal 2", full:"Fondo Personal 2 — La Sociedad", desc:"Operaciones de La Sociedad. 50/50 socios.", icon:"👥" },
   NA:  { short:"Nueva Aportación", full:"Nueva Aportación de Capital", desc:"Dinero nuevo. Se registra como capital y la pieza entra al FIC.", icon:"💰" },
 };
 const FUNDS = Object.keys(FUND_INFO);
@@ -362,7 +360,7 @@ function AiRefValidator({ brand, model, refNum, onResult }) {
   const [result, setResult] = useState(null);
 
   const validate = async () => {
-    if (!brand || !refNum) return;
+    if (!brand) return;
     setLoading(true);
     try {
       const { data: { session } } = await sb.auth.getSession();
@@ -382,27 +380,79 @@ function AiRefValidator({ brand, model, refNum, onResult }) {
 
   return (
     <div>
-      <button type="button" onClick={validate} disabled={loading || !brand || !refNum}
+      <button type="button" onClick={validate} disabled={loading || !brand}
         className="fb text-xs px-3 py-1.5 rounded-lg font-medium transition-all disabled:opacity-40 flex items-center gap-1.5"
         style={{ background: "rgba(168,85,247,.15)", color: "var(--pr)" }}>
         <Ico d={IC.ai} s={14} />{loading ? "Buscando en web..." : "Validar con IA"}
       </button>
-      {result && (
-        <div className="mt-2 p-3 rounded-lg fb text-xs space-y-1" style={{ background: result.valid ? "rgba(74,222,128,.06)" : "rgba(251,113,133,.06)", border: result.valid ? "1px solid rgba(74,222,128,.15)" : "1px solid rgba(251,113,133,.15)" }}>
-          <div className="font-bold" style={{ color: result.valid ? "var(--gn)" : "var(--rd)" }}>{result.valid ? "✓ Referencia válida" : "✕ Referencia no encontrada"}</div>
-          {result.name && <div><span style={{color:"var(--cd)"}}>Nombre:</span> <span className="text-white">{result.name}</span></div>}
-          {result.case_mm && <div><span style={{color:"var(--cd)"}}>Caja:</span> <span className="text-white">{result.case_mm}</span></div>}
-          {result.movement && <div><span style={{color:"var(--cd)"}}>Calibre:</span> <span className="text-white">{result.movement}</span></div>}
-          {result.material && <div><span style={{color:"var(--cd)"}}>Material:</span> <span className="text-white">{result.material}</span></div>}
-          {result.dial && <div><span style={{color:"var(--cd)"}}>Dial:</span> <span className="text-white">{result.dial}</span></div>}
-          {result.water_resistance && <div><span style={{color:"var(--cd)"}}>WR:</span> <span className="text-white">{result.water_resistance}</span></div>}
-          {result.year_range && <div><span style={{color:"var(--cd)"}}>Producción:</span> <span className="text-white">{result.year_range}</span></div>}
-          {result.retail_usd && <div><span style={{color:"var(--cd)"}}>Retail:</span> <span className="text-white">{result.retail_usd}</span></div>}
-          {result.market_usd && <div><span style={{color:"var(--cd)"}}>Mercado:</span> <span className="text-white font-semibold">{result.market_usd}</span></div>}
-          {result.sources && <div><span style={{color:"var(--cd)"}}>Fuentes:</span> <span className="text-white opacity-60">{result.sources}</span></div>}
-          {result.notes && <div style={{color:"var(--cd)"}}>{result.notes}</div>}
+      {result && <AiResultCard result={result} />}
+    </div>
+  );
+}
+
+function AiResultCard({ result }) {
+  if (!result) return null;
+  const fields = [
+    { k: "name", l: "Nombre completo", icon: "⌚" },
+    { k: "case_mm", l: "Caja", icon: "📐" },
+    { k: "movement", l: "Calibre", icon: "⚙️" },
+    { k: "material", l: "Material", icon: "🪨" },
+    { k: "dial", l: "Dial", icon: "🎨" },
+    { k: "water_resistance", l: "WR", icon: "💧" },
+    { k: "year_range", l: "Producción", icon: "📅" },
+    { k: "retail_usd", l: "Retail USD", icon: "🏷️" },
+    { k: "market_usd", l: "Mercado USD", icon: "💰" },
+  ].filter(f => result[f.k]);
+  return (
+    <div className="mt-3 rounded-xl overflow-hidden" style={{ border: result.valid ? "1px solid rgba(74,222,128,.2)" : "1px solid rgba(251,113,133,.2)" }}>
+      <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: result.valid ? "rgba(74,222,128,.08)" : "rgba(251,113,133,.08)" }}>
+        <span className="fb text-sm font-bold" style={{ color: result.valid ? "var(--gn)" : "var(--rd)" }}>{result.valid ? "✓ Referencia válida" : "✕ No encontrada"}</span>
+        {result.name && <span className="fb text-xs" style={{ color: "var(--cd)" }}>— {result.name}</span>}
+      </div>
+      {fields.length > 0 && (
+        <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2" style={{ background: "rgba(255,255,255,.02)" }}>
+          {fields.map(f => (
+            <div key={f.k} className="flex items-center gap-2">
+              <span className="text-sm">{f.icon}</span>
+              <div>
+                <div className="fb text-xs" style={{ color: "var(--cd)" }}>{f.l}</div>
+                <div className="fb text-sm text-white font-medium">{result[f.k]}</div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
+      {result.sources && <div className="px-4 py-2 fb text-xs" style={{ background: "rgba(255,255,255,.01)", color: "var(--cd)", borderTop: "1px solid rgba(255,255,255,.04)" }}>📎 {result.sources}</div>}
+      {result.notes && <div className="px-4 py-2 fb text-xs" style={{ background: "rgba(255,255,255,.01)", color: "var(--cd)", borderTop: "1px solid rgba(255,255,255,.04)" }}>{result.notes}</div>}
+    </div>
+  );
+}
+
+/* ═══ COMBOBOX — select from list OR type custom ═══ */
+function ComboSelect({ value, options, placeholder, onChange, allowCustom = true }) {
+  const [typing, setTyping] = useState(false);
+  const [search, setSearch] = useState("");
+  const hasMatch = options.some(o => o === value);
+
+  // If value doesn't match any option, show input mode
+  const isCustom = typing || (value && !hasMatch && allowCustom);
+
+  if (isCustom) {
+    return (
+      <div className="flex gap-1.5">
+        <input className="ti flex-1" value={value} placeholder={placeholder || "Escribir..."} onChange={e => onChange(e.target.value)} autoFocus />
+        {options.length > 0 && <button type="button" onClick={() => { setTyping(false); if (!hasMatch) onChange(""); }} className="fb text-xs px-2 rounded-lg shrink-0" style={{ color: "var(--cd)", background: "rgba(255,255,255,.04)" }} title="Ver lista">▼</button>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-1.5">
+      <select className="ti flex-1" value={value} onChange={e => { if (e.target.value === "__custom__") { setTyping(true); onChange(""); } else onChange(e.target.value); }}>
+        <option value="">{placeholder || "Seleccionar..."}</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+        {allowCustom && <option value="__custom__">✏ Escribir manualmente...</option>}
+      </select>
     </div>
   );
 }
@@ -413,60 +463,38 @@ function WatchRefSelector({ brand, model, refNum, onChange, customRefs, onAiResu
   const dbRefs = getRefs(brand, model);
   const customRefsForBM = (customRefs || []).filter(cr => cr.brand === brand && cr.model === model).map(cr => cr.ref_number);
   const allRefs = [...new Set([...dbRefs, ...customRefsForBM])];
-  const [customMode, setCustomMode] = useState(false);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [aiResult, setAiResult] = useState(null);
 
-  const handleRefChange = (v) => {
-    if (v === "__custom__") { setCustomMode(true); onChange("ref", ""); }
-    else { setCustomMode(false); onChange("ref", v); }
-  };
-
-  const handleSaveCustom = async () => {
-    if (!brand || !refNum) return;
-    try {
-      await db.saveCustomRef({ brand, model: model || "", ref_number: refNum, ai_validated: aiResult?.valid || false, ai_response: aiResult || null });
-      setShowSaveConfirm(false);
-      alert("Referencia guardada en catálogo custom");
-    } catch (e) { alert("Error: " + e.message); }
-  };
-
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-      <Fl label="Marca" req>
-        <select className="ti" value={brand} onChange={e => { onChange("brand", e.target.value); onChange("model", ""); onChange("ref", ""); setCustomMode(false); }}>
-          <option value="">Seleccionar...</option>{BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
-        </select>
-      </Fl>
-      <Fl label="Modelo" req>
-        {models.length > 0 ? (
-          <select className="ti" value={model} onChange={e => { onChange("model", e.target.value); onChange("ref", ""); setCustomMode(false); }}>
-            <option value="">Seleccionar...</option>{models.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-        ) : <input className="ti" value={model} placeholder="Escribir modelo..." onChange={e => onChange("model", e.target.value)} />}
-      </Fl>
-      <Fl label="Referencia">
-        {!customMode && allRefs.length > 0 ? (
-          <select className="ti" value={refNum} onChange={e => handleRefChange(e.target.value)}>
-            <option value="">Seleccionar...</option>
-            {allRefs.map(r => <option key={r} value={r}>{r}</option>)}
-            <option value="__custom__">✏ Escribir manualmente...</option>
-          </select>
-        ) : (
-          <div className="flex gap-2">
-            <input className="ti flex-1" value={refNum} placeholder="Ref. manual..." onChange={e => onChange("ref", e.target.value)} />
-            {allRefs.length > 0 && <button type="button" onClick={() => setCustomMode(false)} className="fb text-xs px-2 rounded-lg" style={{ color: "var(--cd)" }}>Lista</button>}
-          </div>
-        )}
-        {customMode && refNum && (
-          <div className="flex items-center gap-2 mt-2">
-            <AiRefValidator brand={brand} model={model} refNum={refNum} onResult={(r) => { setAiResult(r); setShowSaveConfirm(true); if (onAiResult) onAiResult(r); }} />
-            {showSaveConfirm && (
-              <button type="button" onClick={handleSaveCustom} className="fb text-xs px-3 py-1.5 rounded-lg" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>Guardar al catálogo</button>
-            )}
-          </div>
-        )}
-      </Fl>
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Fl label="Marca" req>
+          <ComboSelect value={brand} options={BRANDS} placeholder="Seleccionar marca..."
+            onChange={v => { onChange("brand", v); onChange("model", ""); onChange("ref", ""); }} />
+        </Fl>
+        <Fl label="Modelo" req>
+          <ComboSelect value={model} options={models} placeholder={models.length ? "Seleccionar modelo..." : "Escribir modelo..."}
+            onChange={v => { onChange("model", v); onChange("ref", ""); }} />
+        </Fl>
+        <Fl label="Referencia">
+          <ComboSelect value={refNum} options={allRefs} placeholder={allRefs.length ? "Seleccionar ref..." : "Ref. manual..."}
+            onChange={v => onChange("ref", v)} />
+        </Fl>
+      </div>
+
+      {/* AI + Save custom ref */}
+      {brand && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <AiRefValidator brand={brand} model={model} refNum={refNum} onResult={(r) => { setAiResult(r); setShowSaveConfirm(true); if (onAiResult) onAiResult(r); }} />
+          {showSaveConfirm && refNum && (
+            <button type="button" onClick={async () => {
+              if (!brand || !refNum) return;
+              try { await db.saveCustomRef({ brand, model: model || "", ref_number: refNum, ai_validated: aiResult?.valid || false, ai_response: aiResult || null }); setShowSaveConfirm(false); alert("Referencia guardada en catálogo custom"); } catch (e) { alert("Error: " + e.message); }
+            }} className="fb text-xs px-3 py-1.5 rounded-lg" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>💾 Guardar al catálogo</button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -651,17 +679,48 @@ function PublicCatalog() {
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
+  const [name, setName] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState("login"); // login | register | forgot
+  const [msg, setMsg] = useState("");
 
-  const go = async () => {
+  const goLogin = async () => {
     if (!email || !pass) return;
-    setLoading(true); setErr("");
+    setLoading(true); setErr(""); setMsg("");
     try {
       const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
       if (error) throw error;
       onLogin(data.user);
     } catch (e) { setErr(e.message || "Error de autenticación"); }
+    setLoading(false);
+  };
+
+  const goRegister = async () => {
+    if (!email || !pass) return;
+    if (pass.length < 6) return setErr("La contraseña debe tener al menos 6 caracteres");
+    setLoading(true); setErr(""); setMsg("");
+    try {
+      const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { name: name || email } } });
+      if (error) throw error;
+      // Create profile
+      if (data.user) {
+        await sb.from("profiles").upsert({ id: data.user.id, email, name: name || email, role: "pending", active: false });
+      }
+      setMsg("Cuenta creada. Un administrador debe activar tu perfil antes de que puedas ingresar.");
+      setMode("login");
+    } catch (e) { setErr(e.message || "Error al registrar"); }
+    setLoading(false);
+  };
+
+  const goForgot = async () => {
+    if (!email) return setErr("Ingresa tu email");
+    setLoading(true); setErr(""); setMsg("");
+    try {
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+      if (error) throw error;
+      setMsg("Se envió un link de recuperación a tu email.");
+    } catch (e) { setErr(e.message || "Error"); }
     setLoading(false);
   };
 
@@ -676,11 +735,43 @@ function LoginScreen({ onLogin }) {
           <div className="fb text-xs mt-4 tracking-widest uppercase" style={{ color: "var(--gk)" }}>Sistema de Administración v13</div>
         </div>
         <div className="rounded-2xl p-6" style={{ background: "var(--n2)", border: "1px solid rgba(201,169,110,.12)", boxShadow: "0 20px 60px rgba(0,0,0,.4)" }}>
-          <Fl label="Email"><input type="email" className="ti" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@email.com" /></Fl>
-          <Fl label="Contraseña"><input type="password" className="ti" value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••" onKeyDown={e => { if (e.key === "Enter") go(); }} /></Fl>
-          {err && <div className="fb text-xs text-center mb-3" style={{ color: "var(--rd)" }}>{err}</div>}
-          <BtnP onClick={go} disabled={loading} full>{loading ? "Ingresando..." : "Ingresar"}</BtnP>
-          <div className="text-center mt-4">
+          {mode === "login" && <>
+            <Fl label="Email"><input type="email" className="ti" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@email.com" /></Fl>
+            <Fl label="Contraseña"><input type="password" className="ti" value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••" onKeyDown={e => { if (e.key === "Enter") goLogin(); }} /></Fl>
+            {err && <div className="fb text-xs text-center mb-3" style={{ color: "var(--rd)" }}>{err}</div>}
+            {msg && <div className="fb text-xs text-center mb-3 p-2 rounded-lg" style={{ color: "var(--gn)", background: "rgba(74,222,128,.08)" }}>{msg}</div>}
+            <BtnP onClick={goLogin} disabled={loading} full>{loading ? "Ingresando..." : "Ingresar"}</BtnP>
+            <div className="flex justify-between mt-4">
+              <button onClick={() => { setMode("forgot"); setErr(""); setMsg(""); }} className="fb text-xs hover:underline" style={{ color: "var(--cd)" }}>¿Olvidaste tu contraseña?</button>
+              <button onClick={() => { setMode("register"); setErr(""); setMsg(""); }} className="fb text-xs hover:underline" style={{ color: "var(--gd)" }}>Crear cuenta →</button>
+            </div>
+          </>}
+
+          {mode === "register" && <>
+            <div className="fb text-sm font-semibold text-white mb-4">Crear Cuenta</div>
+            <Fl label="Nombre"><input className="ti" value={name} onChange={e => setName(e.target.value)} placeholder="Tu nombre" /></Fl>
+            <Fl label="Email"><input type="email" className="ti" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@email.com" /></Fl>
+            <Fl label="Contraseña"><input type="password" className="ti" value={pass} onChange={e => setPass(e.target.value)} placeholder="Mínimo 6 caracteres" /></Fl>
+            {err && <div className="fb text-xs text-center mb-3" style={{ color: "var(--rd)" }}>{err}</div>}
+            <BtnP onClick={goRegister} disabled={loading} full>{loading ? "Registrando..." : "Crear Cuenta"}</BtnP>
+            <div className="text-center mt-3 fb text-xs p-2 rounded-lg" style={{ color: "var(--cd)", background: "rgba(255,255,255,.03)" }}>Nota: Un administrador debe activar tu cuenta después del registro.</div>
+            <div className="text-center mt-3">
+              <button onClick={() => { setMode("login"); setErr(""); }} className="fb text-xs hover:underline" style={{ color: "var(--gd)" }}>← Regresar al login</button>
+            </div>
+          </>}
+
+          {mode === "forgot" && <>
+            <div className="fb text-sm font-semibold text-white mb-4">Recuperar Contraseña</div>
+            <Fl label="Email"><input type="email" className="ti" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@email.com" /></Fl>
+            {err && <div className="fb text-xs text-center mb-3" style={{ color: "var(--rd)" }}>{err}</div>}
+            {msg && <div className="fb text-xs text-center mb-3 p-2 rounded-lg" style={{ color: "var(--gn)", background: "rgba(74,222,128,.08)" }}>{msg}</div>}
+            <BtnP onClick={goForgot} disabled={loading} full>{loading ? "Enviando..." : "Enviar link de recuperación"}</BtnP>
+            <div className="text-center mt-3">
+              <button onClick={() => { setMode("login"); setErr(""); setMsg(""); }} className="fb text-xs hover:underline" style={{ color: "var(--gd)" }}>← Regresar al login</button>
+            </div>
+          </>}
+
+          <div className="text-center mt-4" style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 12 }}>
             <a href="?catalog" className="fb text-xs hover:underline" style={{ color: "var(--gd)" }}>Ver catálogo público →</a>
           </div>
         </div>
@@ -700,155 +791,214 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
   const [combinedFin, setCombinedFin] = useState(false);
   const [newCapital, setNewCapital] = useState(0);
   const [newSupplier, setNewSupplier] = useState(null);
+  const [tab, setTab] = useState("id");
+  const [aiResult, setAiResult] = useState(null);
   const fromFund = Math.max(0, (f.cost || 0) - newCapital);
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const autoName = (b, m) => [b, m].filter(Boolean).join(" ");
 
+  const TABS = [
+    { id: "id", l: "Reloj", icon: "🔍" },
+    { id: "detail", l: "Detalles", icon: "📋" },
+    { id: "photos", l: "Fotos", icon: "📸", count: localFotos.filter(ft => !ft.deleted_at).length },
+    { id: "money", l: "Adquisición", icon: "💰" },
+  ];
+
   return (
     <div className="space-y-4">
-      {/* Watch ID */}
-      <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
-        <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Identificación del Reloj</div>
-        <WatchRefSelector brand={f.brand} model={f.model} refNum={f.ref} customRefs={customRefs}
-          onChange={(field, val) => {
-            if (field === "brand") sF(p => ({ ...p, brand: val, model: "", ref: "", name: val }));
-            else if (field === "model") sF(p => ({ ...p, model: val, ref: getRefs(p.brand, val)[0] || "", name: autoName(p.brand, val) }));
-            else u("ref", val);
-          }}
-          onAiResult={(r) => { if (r?.valid && r?.name) sF(p => ({ ...p, name: r.name })); }} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-          <Fl label="Nombre (auto)" hint="Marca + Modelo"><input className="ti" value={f.name} onChange={e => u("name", e.target.value)} style={{ fontWeight: 600 }} /></Fl>
-          <Fl label="SKU" hint="Auto-asignado"><input className="ti" value={f.sku} readOnly /></Fl>
+      {/* Tab bar */}
+      <div className="flex gap-1 p-1 rounded-xl" style={{ background: "rgba(255,255,255,.03)" }}>
+        {TABS.map(t => (
+          <button key={t.id} type="button" onClick={() => setTab(t.id)}
+            className="flex-1 fb text-xs font-semibold px-2 py-2.5 rounded-lg transition-all flex items-center justify-center gap-1.5"
+            style={tab === t.id ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
+            <span>{t.icon}</span><span className="hidden md:inline">{t.l}</span>
+            {t.count > 0 && <span className="fb text-xs px-1.5 py-0.5 rounded-full" style={{ background: "rgba(74,222,128,.15)", color: "var(--gn)", fontSize: 10 }}>{t.count}</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* ═══ TAB: IDENTIFICACIÓN ═══ */}
+      {tab === "id" && (
+        <div className="space-y-4 au">
+          <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
+            <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Identificación del Reloj</div>
+            <WatchRefSelector brand={f.brand} model={f.model} refNum={f.ref} customRefs={customRefs}
+              onChange={(field, val) => {
+                if (field === "brand") sF(p => ({ ...p, brand: val, model: "", ref: "", name: val }));
+                else if (field === "model") sF(p => ({ ...p, model: val, ref: getRefs(p.brand, val)[0] || "", name: autoName(p.brand, val) }));
+                else u("ref", val);
+              }}
+              onAiResult={(r) => { setAiResult(r); if (r?.valid && r?.name) sF(p => ({ ...p, name: r.name })); if (r?.valid && r?.case_mm) u("case_size", r.case_mm.replace(/[^\d.]/g, "")); if (r?.valid && r?.dial) u("dial_color", r.dial); }} />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Fl label="Nombre (auto)" hint="Marca + Modelo"><input className="ti" value={f.name} onChange={e => u("name", e.target.value)} style={{ fontWeight: 600 }} /></Fl>
+            <Fl label="SKU" hint="Auto-asignado"><input className="ti" value={f.sku} readOnly /></Fl>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <Fl label="Número de Serie"><input className="ti" value={f.serial || ""} onChange={e => u("serial", e.target.value)} /></Fl>
+            <Fl label="Condición"><select className="ti" value={f.condition} onChange={e => u("condition", e.target.value)}>{CONDS.map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
+            <Fl label="Autenticación"><select className="ti" value={f.auth_level} onChange={e => u("auth_level", e.target.value)}>{AUTHS.map(a => <option key={a.c} value={a.c}>Nv.{a.l} — {a.n}</option>)}</select></Fl>
+          </div>
+
+          {/* AI Result Card — inline in ID tab */}
+          {aiResult && <AiResultCard result={aiResult} />}
         </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <Fl label="Número de Serie"><input className="ti" value={f.serial || ""} onChange={e => u("serial", e.target.value)} /></Fl>
-        <Fl label="Condición"><select className="ti" value={f.condition} onChange={e => u("condition", e.target.value)}>{CONDS.map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
-        <Fl label="Autenticación"><select className="ti" value={f.auth_level} onChange={e => u("auth_level", e.target.value)}>{AUTHS.map(a => <option key={a.c} value={a.c}>Nv.{a.l} — {a.n}</option>)}</select></Fl>
-      </div>
-
-      {/* Watch details */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Fl label="Color Dial"><select className="ti" value={f.dial_color || ""} onChange={e => u("dial_color", e.target.value)}><option value="">—</option>{DIAL_COLORS.map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
-        <Fl label="Bisel"><select className="ti" value={f.bezel_type || ""} onChange={e => u("bezel_type", e.target.value)}><option value="">—</option>{BEZEL_TYPES.map(b => <option key={b} value={b}>{b}</option>)}</select></Fl>
-        <Fl label="Caja (mm)"><input className="ti" value={f.case_size || ""} onChange={e => u("case_size", e.target.value)} placeholder="41" /></Fl>
-        <Fl label="Correa / Brazalete"><select className="ti" value={f.strap_type || ""} onChange={e => u("strap_type", e.target.value)}><option value="">—</option>{STRAP_TYPES.map(s => <option key={s} value={s}>{s}</option>)}</select></Fl>
-      </div>
-
-      {/* Proveedor */}
-      <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
-        <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Proveedor / Vendedor</div>
-        {!newSupplier ? (
-          <div className="flex gap-2">
-            <select className="ti flex-1" value={f.supplier_id || ""} onChange={e => u("supplier_id", e.target.value)}>
-              <option value="">— Sin asignar —</option>
-              {(suppliers || []).map(s => <option key={s.id} value={s.id}>{s.name} ({s.type || "Particular"}) {s.phone ? `· ${s.phone}` : ""}</option>)}
-            </select>
-            <button type="button" onClick={() => setNewSupplier({ name: "", phone: "", email: "", ine: "", type: "Particular", notes: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>+ Nuevo</button>
+      {/* ═══ TAB: DETALLES ═══ */}
+      {tab === "detail" && (
+        <div className="space-y-4 au">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Fl label="Color Dial"><select className="ti" value={f.dial_color || ""} onChange={e => u("dial_color", e.target.value)}><option value="">—</option>{DIAL_COLORS.map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
+            <Fl label="Bisel"><select className="ti" value={f.bezel_type || ""} onChange={e => u("bezel_type", e.target.value)}><option value="">—</option>{BEZEL_TYPES.map(b => <option key={b} value={b}>{b}</option>)}</select></Fl>
+            <Fl label="Caja (mm)"><input className="ti" value={f.case_size || ""} onChange={e => u("case_size", e.target.value)} placeholder="41" /></Fl>
+            <Fl label="Correa / Brazalete"><select className="ti" value={f.strap_type || ""} onChange={e => u("strap_type", e.target.value)}><option value="">—</option>{STRAP_TYPES.map(s => <option key={s} value={s}>{s}</option>)}</select></Fl>
           </div>
-        ) : (
-          <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <input className="ti" placeholder="Nombre *" value={newSupplier.name} onChange={e => setNewSupplier(p => ({ ...p, name: e.target.value }))} />
-              <select className="ti" value={newSupplier.type} onChange={e => setNewSupplier(p => ({ ...p, type: e.target.value }))}>{SUPPLIER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
-              <input className="ti" placeholder="Teléfono / WhatsApp" value={newSupplier.phone} onChange={e => setNewSupplier(p => ({ ...p, phone: e.target.value }))} />
-              <input className="ti" placeholder="Email" value={newSupplier.email} onChange={e => setNewSupplier(p => ({ ...p, email: e.target.value }))} />
-              <input className="ti" placeholder="INE / Identificación" value={newSupplier.ine} onChange={e => setNewSupplier(p => ({ ...p, ine: e.target.value }))} />
-              <input className="ti" placeholder="Notas" value={newSupplier.notes} onChange={e => setNewSupplier(p => ({ ...p, notes: e.target.value }))} />
-            </div>
-            <div className="flex gap-2">
-              <button type="button" onClick={async () => {
-                if (!newSupplier.name) return alert("Nombre requerido");
-                const s = { id: "Pid_" + uid().slice(0, 8), ...newSupplier };
-                try { if (onSaveSupplier) await onSaveSupplier(s); u("supplier_id", s.id); setNewSupplier(null); } catch(e) { alert("Error: " + e.message); }
-              }} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.15)", color: "var(--gn)" }}>Guardar Proveedor</button>
-              <button type="button" onClick={() => setNewSupplier(null)} className="fb text-xs px-3 py-1.5 rounded-lg" style={{ color: "var(--cd)" }}>Cancelar</button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Origen del recurso + financiamiento combinado */}
-      <div className="rounded-xl p-4" style={{ background: "rgba(96,165,250,.04)", border: "1px solid rgba(96,165,250,.12)" }}>
-        <div className="flex items-center gap-2 mb-3">
-          <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--bl)" }}>↓ Origen del Recurso</span>
-          <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿De dónde sale el dinero?</span>
-        </div>
-        <FundSel value={f.fondo_id} onChange={v => { u("fondo_id", v); if (v === "NA") { setCombinedFin(false); setNewCapital(0); } }} />
-        {f.fondo_id === "NA" && f.cost > 0 && (
-          <div className="mt-2 fb text-xs p-3 rounded-lg" style={{ background: "rgba(74,222,128,.06)", color: "var(--gn)" }}>
-            💰 Se registrará una inyección de capital de <strong>{fmxn(f.cost)}</strong> al Fondo de Inversión Compartida (FIC). La pieza queda en el FIC y la utilidad se divide 40/60 al venderla.
-          </div>
-        )}
-
-        {!piece && f.cost > 0 && f.fondo_id !== "NA" && (
-          <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={combinedFin} onChange={e => { setCombinedFin(e.target.checked); if (!e.target.checked) setNewCapital(0); }} className="w-4 h-4 rounded" />
-              <span className="fb text-sm text-white">Financiamiento combinado</span>
-              <span className="fb text-xs" style={{ color: "var(--cd)" }}>— No alcanza el fondo, necesito aportar</span>
+          <div className="grid grid-cols-3 gap-3">
+            <label className="flex items-center gap-2 p-3 rounded-xl cursor-pointer" style={{ background: f.full_set !== false ? "rgba(74,222,128,.06)" : "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+              <input type="checkbox" checked={f.full_set !== false} onChange={e => u("full_set", e.target.checked)} className="w-4 h-4 rounded" />
+              <span className="fb text-sm text-white">Full Set</span>
             </label>
-            {combinedFin && (
-              <div className="mt-3 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}>
-                    <div className="fb text-xs" style={{ color: "var(--bl)" }}>Del {FUND_INFO[f.fondo_id]?.short || "Fondo"}</div>
-                    <div className="fd font-bold text-lg text-white">{fmxn(fromFund)}</div>
-                  </div>
-                  <div className="rounded-xl p-3 text-center" style={{ background: "rgba(74,222,128,.06)" }}>
-                    <div className="fb text-xs" style={{ color: "var(--gn)" }}>Nueva Aportación</div>
-                    <div className="fd font-bold text-lg" style={{ color: "var(--gn)" }}>{fmxn(newCapital)}</div>
-                  </div>
+            <label className="flex items-center gap-2 p-3 rounded-xl cursor-pointer" style={{ background: f.papers !== false ? "rgba(74,222,128,.06)" : "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+              <input type="checkbox" checked={f.papers !== false} onChange={e => u("papers", e.target.checked)} className="w-4 h-4 rounded" />
+              <span className="fb text-sm text-white">Papers</span>
+            </label>
+            <label className="flex items-center gap-2 p-3 rounded-xl cursor-pointer" style={{ background: f.box !== false ? "rgba(74,222,128,.06)" : "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+              <input type="checkbox" checked={f.box !== false} onChange={e => u("box", e.target.checked)} className="w-4 h-4 rounded" />
+              <span className="fb text-sm text-white">Caja</span>
+            </label>
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={f.publish_catalog || false} onChange={e => u("publish_catalog", e.target.checked)} className="w-4 h-4 rounded" />
+              <span className="fb text-sm font-medium text-white">Publicar en catálogo público</span>
+            </label>
+          </div>
+          {f.publish_catalog && <Fl label="Descripción para catálogo"><textarea className="ti" rows={2} value={f.catalog_description || ""} onChange={e => u("catalog_description", e.target.value)} placeholder="Descripción visible en el catálogo público..." /></Fl>}
+          <Fl label="Notas internas"><textarea className="ti" rows={2} value={f.notes || ""} onChange={e => u("notes", e.target.value)} /></Fl>
+        </div>
+      )}
+
+      {/* ═══ TAB: FOTOS ═══ */}
+      {tab === "photos" && (
+        <div className="au">
+          <PhotoUploader pieceId={f.id} fotos={localFotos} isNew={!piece}
+            onUpload={(saved) => { if (saved) setLocalFotos(prev => [...prev.filter(ft => ft.posicion !== saved.posicion), saved]); }}
+            onDelete={async (foto) => { try { await db.softDelFoto(foto.id); setLocalFotos(prev => prev.filter(ft => ft.id !== foto.id)); } catch(e) { alert("Error: " + e.message); } }} />
+        </div>
+      )}
+
+      {/* ═══ TAB: ADQUISICIÓN ═══ */}
+      {tab === "money" && (
+        <div className="space-y-4 au">
+          {/* Proveedor */}
+          <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
+            <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Proveedor / Vendedor</div>
+            {!newSupplier ? (
+              <div className="flex gap-2">
+                <select className="ti flex-1" value={f.supplier_id || ""} onChange={e => u("supplier_id", e.target.value)}>
+                  <option value="">— Sin asignar —</option>
+                  {(suppliers || []).map(s => <option key={s.id} value={s.id}>{s.name} ({s.type || "Particular"}) {s.phone ? `· ${s.phone}` : ""}</option>)}
+                </select>
+                <button type="button" onClick={() => setNewSupplier({ name: "", phone: "", email: "", ine: "", type: "Particular", notes: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>+ Nuevo</button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <input className="ti" placeholder="Nombre *" value={newSupplier.name} onChange={e => setNewSupplier(p => ({ ...p, name: e.target.value }))} />
+                  <select className="ti" value={newSupplier.type} onChange={e => setNewSupplier(p => ({ ...p, type: e.target.value }))}>{SUPPLIER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                  <input className="ti" placeholder="Teléfono / WhatsApp" value={newSupplier.phone} onChange={e => setNewSupplier(p => ({ ...p, phone: e.target.value }))} />
+                  <input className="ti" placeholder="Email" value={newSupplier.email} onChange={e => setNewSupplier(p => ({ ...p, email: e.target.value }))} />
+                  <input className="ti" placeholder="INE / Identificación" value={newSupplier.ine} onChange={e => setNewSupplier(p => ({ ...p, ine: e.target.value }))} />
+                  <input className="ti" placeholder="Notas" value={newSupplier.notes} onChange={e => setNewSupplier(p => ({ ...p, notes: e.target.value }))} />
                 </div>
-                <Fl label="Monto de nueva aportación (MXN)" hint="Se registra como inyección de capital al fondo">
-                  <input type="number" className="ti" value={newCapital || ""} onChange={e => { const v = Math.min(Number(e.target.value), f.cost); setNewCapital(v); }} />
-                </Fl>
-                {newCapital > 0 && (
-                  <div className="fb text-xs p-2 rounded-lg" style={{ background: "rgba(74,222,128,.06)", color: "var(--gn)" }}>
-                    Se registrará una inyección de capital de {fmxn(newCapital)} al {FUND_INFO[f.fondo_id]?.short || "fondo"} antes de la compra.
+                <div className="flex gap-2">
+                  <button type="button" onClick={async () => {
+                    if (!newSupplier.name) return alert("Nombre requerido");
+                    const s = { id: "Pid_" + uid().slice(0, 8), ...newSupplier };
+                    try { if (onSaveSupplier) await onSaveSupplier(s); u("supplier_id", s.id); setNewSupplier(null); } catch(e) { alert("Error: " + e.message); }
+                  }} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.15)", color: "var(--gn)" }}>Guardar Proveedor</button>
+                  <button type="button" onClick={() => setNewSupplier(null)} className="fb text-xs px-3 py-1.5 rounded-lg" style={{ color: "var(--cd)" }}>Cancelar</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Origen del recurso */}
+          <div className="rounded-xl p-4" style={{ background: "rgba(96,165,250,.04)", border: "1px solid rgba(96,165,250,.12)" }}>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--bl)" }}>↓ Origen del Recurso</span>
+              <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿De dónde sale el dinero?</span>
+            </div>
+            <FundSel value={f.fondo_id} onChange={v => { u("fondo_id", v); if (v === "NA") { setCombinedFin(false); setNewCapital(0); } }} />
+            {f.fondo_id === "NA" && f.cost > 0 && (
+              <div className="mt-2 fb text-xs p-3 rounded-lg" style={{ background: "rgba(74,222,128,.06)", color: "var(--gn)" }}>
+                💰 Se registrará una inyección de capital de <strong>{fmxn(f.cost)}</strong> al Fondo de Inversión Compartida (FIC).
+              </div>
+            )}
+            {!piece && f.cost > 0 && f.fondo_id !== "NA" && (
+              <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={combinedFin} onChange={e => { setCombinedFin(e.target.checked); if (!e.target.checked) setNewCapital(0); }} className="w-4 h-4 rounded" />
+                  <span className="fb text-sm text-white">Financiamiento combinado</span>
+                  <span className="fb text-xs" style={{ color: "var(--cd)" }}>— No alcanza el fondo, necesito aportar</span>
+                </label>
+                {combinedFin && (
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}>
+                        <div className="fb text-xs" style={{ color: "var(--bl)" }}>Del {FUND_INFO[f.fondo_id]?.short || "Fondo"}</div>
+                        <div className="fd font-bold text-lg text-white">{fmxn(fromFund)}</div>
+                      </div>
+                      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(74,222,128,.06)" }}>
+                        <div className="fb text-xs" style={{ color: "var(--gn)" }}>Nueva Aportación</div>
+                        <div className="fd font-bold text-lg" style={{ color: "var(--gn)" }}>{fmxn(newCapital)}</div>
+                      </div>
+                    </div>
+                    <Fl label="Monto de nueva aportación (MXN)" hint="Se registra como inyección de capital al fondo">
+                      <input type="number" className="ti" value={newCapital || ""} onChange={e => { const v = Math.min(Number(e.target.value), f.cost); setNewCapital(v); }} />
+                    </Fl>
                   </div>
                 )}
               </div>
             )}
           </div>
-        )}
-      </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <Fl label="Motivo de Entrada" req><select className="ti" value={f.entry_type} onChange={e => u("entry_type", e.target.value)}>{ETYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Fl>
-        <Fl label="Fecha Entrada" req><input type="date" className="ti" value={f.entry_date} onChange={e => u("entry_date", e.target.value)} /></Fl>
-      </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Fl label="Motivo de Entrada" req><select className="ti" value={f.entry_type} onChange={e => u("entry_type", e.target.value)}>{ETYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Fl>
+            <Fl label="Fecha Entrada" req><input type="date" className="ti" value={f.entry_date} onChange={e => u("entry_date", e.target.value)} /></Fl>
+          </div>
 
-      {/* Pricing */}
-      <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.12)" }}>
-        <Fl label="Precio Costo (MXN)" req>
-          <input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={f.cost || ""}
-            onChange={e => { const n = Number(e.target.value); sF(p => ({ ...p, cost: n, ...calcPr(n) })); }} />
-        </Fl>
-        <div className="grid grid-cols-3 gap-2 mt-2">
-          <Fl label="Dealer +8%"><input type="number" className="ti" value={f.price_dealer || ""} onChange={e => u("price_dealer", Number(e.target.value))} /></Fl>
-          <Fl label="Lista +15%"><input type="number" className="ti" value={f.price_asked || ""} onChange={e => u("price_asked", Number(e.target.value))} /></Fl>
-          <Fl label="Trade +20%"><input type="number" className="ti" value={f.price_trade || ""} onChange={e => u("price_trade", Number(e.target.value))} /></Fl>
+          {/* Pricing */}
+          <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.12)" }}>
+            <Fl label="Precio Costo (MXN)" req>
+              <input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={f.cost || ""}
+                onChange={e => { const n = Number(e.target.value); sF(p => ({ ...p, cost: n, ...calcPr(n) })); }} />
+            </Fl>
+            <div className="grid grid-cols-3 gap-2 mt-2">
+              <Fl label="Dealer +8%"><input type="number" className="ti" value={f.price_dealer || ""} onChange={e => u("price_dealer", Number(e.target.value))} /></Fl>
+              <Fl label="Lista +15%"><input type="number" className="ti" value={f.price_asked || ""} onChange={e => u("price_asked", Number(e.target.value))} /></Fl>
+              <Fl label="Trade +20%"><input type="number" className="ti" value={f.price_trade || ""} onChange={e => u("price_trade", Number(e.target.value))} /></Fl>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ SUMMARY BAR + ACTIONS (always visible) ═══ */}
+      <div className="rounded-xl p-3" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+        <div className="flex items-center gap-3 flex-wrap mb-3">
+          {f.brand && <span className="fb text-xs px-2 py-1 rounded-full" style={{ background: "rgba(201,169,110,.1)", color: "var(--cr)" }}>{f.brand} {f.model}</span>}
+          {f.ref && <span className="fb text-xs" style={{ color: "var(--cd)" }}>Ref: {f.ref}</span>}
+          {f.cost > 0 && <span className="fb text-xs font-bold" style={{ color: "var(--gn)" }}>{fmxn(f.cost)}</span>}
+          {f.serial && <span className="fb text-xs" style={{ color: "var(--cd)" }}>S/N: {f.serial}</span>}
+          <span className="fb text-xs" style={{ color: "var(--cd)" }}>SKU: {f.sku}</span>
+        </div>
+        <div className="flex gap-3">
+          <BtnP onClick={() => onSave({ ...f, _newCapital: combinedFin ? newCapital : 0, _pendingFotos: localFotos.filter(ft => ft._pending) })}>Guardar Pieza</BtnP>
+          <BtnS onClick={onClose}>Cancelar</BtnS>
         </div>
       </div>
-
-      {/* Photos - available for new AND existing pieces */}
-      <PhotoUploader pieceId={f.id} fotos={localFotos} isNew={!piece}
-        onUpload={(saved) => { if (saved) setLocalFotos(prev => [...prev.filter(ft => ft.posicion !== saved.posicion), saved]); }}
-        onDelete={async (foto) => { try { await db.softDelFoto(foto.id); setLocalFotos(prev => prev.filter(ft => ft.id !== foto.id)); } catch(e) { alert("Error: " + e.message); } }} />
-
-      {/* Catalog toggle */}
-      <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={f.publish_catalog || false} onChange={e => u("publish_catalog", e.target.checked)} className="w-4 h-4 rounded" />
-          <span className="fb text-sm font-medium text-white">Publicar en catálogo público</span>
-        </label>
-      </div>
-      {f.publish_catalog && <Fl label="Descripción para catálogo"><textarea className="ti" rows={2} value={f.catalog_description || ""} onChange={e => u("catalog_description", e.target.value)} placeholder="Descripción visible en el catálogo público..." /></Fl>}
-
-      <Fl label="Notas internas"><textarea className="ti" rows={2} value={f.notes || ""} onChange={e => u("notes", e.target.value)} /></Fl>
-      <div className="flex gap-3 pt-2"><BtnP onClick={() => onSave({ ...f, _newCapital: combinedFin ? newCapital : 0, _pendingFotos: localFotos.filter(ft => ft._pending) })}>Guardar Pieza</BtnP><BtnS onClick={onClose}>Cancelar</BtnS></div>
     </div>
   );
 }
@@ -1266,6 +1416,14 @@ function SettingsPage({ data, showToast, refresh, currentUser }) {
                   if (!confirm(`¿Eliminar usuario ${p.name} (${p.email})?\n\nEsta acción solo elimina el perfil de la app, no la cuenta de autenticación.`)) return;
                   try { await db.delProfile(p.id); showToast(`${p.name} eliminado`); await refresh(); } catch(e) { alert("Error: " + e.message); }
                 }} className="fb text-xs px-2 py-1 rounded" style={{ color: "var(--rd)" }} title="Eliminar usuario">🗑</button>
+                {p.id !== currentUser?.id && <button onClick={async () => {
+                  if (!confirm(`¿Enviar link de reset de contraseña a ${p.email}?`)) return;
+                  try {
+                    const { error } = await sb.auth.resetPasswordForEmail(p.email, { redirectTo: window.location.origin });
+                    if (error) throw error;
+                    showToast(`Email de reset enviado a ${p.email}`);
+                  } catch(e) { alert("Error: " + e.message); }
+                }} className="fb text-xs px-2 py-1 rounded" style={{ color: "var(--bl)" }} title="Resetear contraseña">🔑</button>}
               </div>
             );
           })}
@@ -1559,6 +1717,22 @@ export default function App() {
   if (!user) return <LoginScreen onLogin={u => { setUser(u); loadData(); }} />;
   if (!data) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--nv)" }}><div className="fd text-xl text-white">Cargando datos...</div></div>;
 
+  // Check if user is pending activation
+  const myProfile_ = (data.profiles || []).find(p => p.id === user?.id);
+  if (myProfile_?.role === "pending" || myProfile_?.active === false) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "linear-gradient(145deg,#060E1A,var(--nv),#0A1525)" }}>
+        <div className="w-full max-w-sm text-center">
+          <div className="text-5xl mb-4">⏳</div>
+          <div className="fd text-xl font-bold text-white mb-2">Cuenta Pendiente</div>
+          <div className="fb text-sm mb-6" style={{ color: "var(--cd)" }}>Tu cuenta ha sido creada pero un administrador debe activarla antes de que puedas acceder al sistema.</div>
+          <div className="fb text-xs mb-6 p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)", color: "var(--gd)", border: "1px solid rgba(201,169,110,.1)" }}>{user.email}</div>
+          <BtnS onClick={logout}>Cerrar Sesión</BtnS>
+        </div>
+      </div>
+    );
+  }
+
   const navI = [
     { id: "dashboard", i: IC.dash, l: "Dashboard" },
     { id: "inventory", i: IC.inv, l: "Inventario" },
@@ -1631,8 +1805,87 @@ export default function App() {
                 </div>
               </div>
             )}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {FUNDS_REAL.map(fk => <Cd key={fk} className="p-4"><div className="flex items-center gap-2 mb-1"><span>{FUND_INFO[fk].icon}</span><span className="fb font-semibold text-sm text-white">{FUND_INFO[fk].full}</span></div><div className="fb text-xs" style={{ color: "var(--cd)" }}>{FUND_INFO[fk].desc}</div></Cd>)}
+            {/* Charts row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Donut: Cash vs Inventory */}
+              {(() => {
+                const total = (comp.cash || 0) + (comp.invC || 0);
+                if (total <= 0) return null;
+                const cashPct = comp.cash / total;
+                const invPct = comp.invC / total;
+                const r = 60, cx = 80, cy = 80, sw = 18;
+                const cashAngle = cashPct * 360;
+                const toRad = d => d * Math.PI / 180;
+                const x1 = cx + r * Math.sin(toRad(cashAngle));
+                const y1 = cy - r * Math.cos(toRad(cashAngle));
+                const lg = cashAngle > 180 ? 1 : 0;
+                return (
+                  <Cd className="p-5">
+                    <div className="fb text-xs font-bold uppercase tracking-widest mb-4" style={{ color: "var(--gd)" }}>Composición del Fondo</div>
+                    <div className="flex items-center gap-6">
+                      <svg viewBox="0 0 160 160" className="w-32 h-32 shrink-0">
+                        {cashPct >= 1 ? <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--bl)" strokeWidth={sw} /> :
+                         invPct >= 1 ? <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--gd)" strokeWidth={sw} /> : <>
+                          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--gd)" strokeWidth={sw} />
+                          <path d={`M ${cx} ${cy - r} A ${r} ${r} 0 ${lg} 1 ${x1} ${y1}`} fill="none" stroke="var(--bl)" strokeWidth={sw} strokeLinecap="round" />
+                        </>}
+                        <text x={cx} y={cy - 6} textAnchor="middle" fill="white" className="fd" fontSize="18" fontWeight="700">{fmxn(total)}</text>
+                        <text x={cx} y={cy + 12} textAnchor="middle" fill="var(--cd)" className="fb" fontSize="10">NAV Total</text>
+                      </svg>
+                      <div className="space-y-3 flex-1">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1"><div className="w-3 h-3 rounded-full" style={{ background: "var(--bl)" }} /><span className="fb text-xs" style={{ color: "var(--cd)" }}>Cash en Fondo</span></div>
+                          <div className="fd font-bold text-white">{fmxn(comp.cash)}</div>
+                          <div className="fb text-xs" style={{ color: "var(--bl)" }}>{(cashPct * 100).toFixed(1)}%</div>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 mb-1"><div className="w-3 h-3 rounded-full" style={{ background: "var(--gd)" }} /><span className="fb text-xs" style={{ color: "var(--cd)" }}>Inventario (Costo)</span></div>
+                          <div className="fd font-bold text-white">{fmxn(comp.invC)}</div>
+                          <div className="fb text-xs" style={{ color: "var(--gd)" }}>{(invPct * 100).toFixed(1)}%</div>
+                        </div>
+                      </div>
+                    </div>
+                  </Cd>
+                );
+              })()}
+
+              {/* Bar chart: sales profit per piece */}
+              {(() => {
+                const soldPieces = (comp.sold || []).map(p => {
+                  const sellTx = (data.txs || []).find(t => t.pieza_id === p.id && t.tipo === "SELL");
+                  if (!sellTx) return null;
+                  return { name: p.name?.split(" ").slice(0, 2).join(" ") || "?", profit: (sellTx.monto || 0) - (p.cost || 0), cost: p.cost || 0, sale: sellTx.monto || 0 };
+                }).filter(Boolean);
+                if (soldPieces.length === 0) return (
+                  <Cd className="p-5 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="text-3xl mb-2">📊</div>
+                      <div className="fb text-sm" style={{ color: "var(--cd)" }}>Gráfico de utilidades aparecerá con la primera venta</div>
+                    </div>
+                  </Cd>
+                );
+                const maxVal = Math.max(...soldPieces.map(s => Math.abs(s.profit)), 1);
+                return (
+                  <Cd className="p-5">
+                    <div className="fb text-xs font-bold uppercase tracking-widest mb-4" style={{ color: "var(--gn)" }}>Utilidad por Pieza Vendida</div>
+                    <div className="space-y-2">
+                      {soldPieces.map((s, i) => (
+                        <div key={i} className="flex items-center gap-3">
+                          <div className="fb text-xs text-white truncate" style={{ width: 80 }}>{s.name}</div>
+                          <div className="flex-1 h-6 rounded-lg overflow-hidden relative" style={{ background: "rgba(255,255,255,.04)" }}>
+                            <div className="h-full rounded-lg transition-all" style={{ width: `${Math.max(5, (Math.abs(s.profit) / maxVal) * 100)}%`, background: s.profit >= 0 ? "rgba(74,222,128,.3)" : "rgba(251,113,133,.3)" }} />
+                            <div className="absolute inset-0 flex items-center px-2"><span className="fb text-xs font-bold" style={{ color: s.profit >= 0 ? "var(--gn)" : "var(--rd)" }}>{s.profit >= 0 ? "+" : ""}{fmxn(s.profit)}</span></div>
+                          </div>
+                        </div>
+                      ))}
+                      <div className="flex items-center gap-3 pt-2 mt-2" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
+                        <div className="fb text-xs font-bold" style={{ width: 80, color: "var(--gd)" }}>Total</div>
+                        <div className="fd font-bold" style={{ color: "var(--gn)" }}>{fmxn(soldPieces.reduce((s, p) => s + p.profit, 0))}</div>
+                      </div>
+                    </div>
+                  </Cd>
+                );
+              })()}
             </div>
             <Cd>
               <div className="px-4 py-3 flex justify-between items-center" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}>
