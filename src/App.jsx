@@ -210,7 +210,7 @@ const BtnD=({children,onClick})=><button type="button" onClick={onClick} classNa
 function FundSel({value,onChange,label,funds}){const flist=funds||FUNDS;return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{flist.map(fk=>{const fi=FUND_INFO[fk];if(!fi)return null;const s=value===fk;return <button key={fk} type="button" onClick={()=>onChange(fk)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(201,169,110,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{fi.icon}</span><span className="fb font-semibold text-sm text-white flex-1">{fi.short}</span>{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
 
 /* ═══ PHOTO UPLOAD COMPONENT ═══ */
-function PhotoUploader({ pieceId, fotos, onUpload, onDelete }) {
+function PhotoUploader({ pieceId, fotos, onUpload, onDelete, isNew }) {
   const [uploading, setUploading] = useState(null);
   const replaceRefs = useRef({});
 
@@ -219,8 +219,14 @@ function PhotoUploader({ pieceId, fotos, onUpload, onDelete }) {
     setUploading(pos);
     try {
       const { url, storagePath } = await stor.uploadFoto(pieceId, pos, file);
-      const saved = await db.saveFoto({ pieza_id: pieceId, posicion: pos, url, storage_path: storagePath });
-      if (onUpload) onUpload(saved);
+      if (isNew) {
+        // New piece: don't save to DB yet, just pass upload info back
+        const pending = { id: uid(), pieza_id: pieceId, posicion: pos, url, storage_path: storagePath, _pending: true };
+        if (onUpload) onUpload(pending);
+      } else {
+        const saved = await db.saveFoto({ pieza_id: pieceId, posicion: pos, url, storage_path: storagePath });
+        if (onUpload) onUpload(saved);
+      }
     } catch (e) { console.error("Upload error:", e); alert("Error subiendo foto: " + e.message); }
     setUploading(null);
   };
@@ -230,10 +236,15 @@ function PhotoUploader({ pieceId, fotos, onUpload, onDelete }) {
     if (!confirm(`¿Reemplazar la foto de "${PHOTO_POSITIONS.find(p => p.id === pos)?.label}"?`)) return;
     setUploading(pos);
     try {
-      if (onDelete) await onDelete(existing);
+      if (!existing._pending && onDelete) await onDelete(existing);
       const { url, storagePath } = await stor.uploadFoto(pieceId, pos, file);
-      const saved = await db.saveFoto({ pieza_id: pieceId, posicion: pos, url, storage_path: storagePath });
-      if (onUpload) onUpload(saved);
+      if (isNew) {
+        const pending = { id: uid(), pieza_id: pieceId, posicion: pos, url, storage_path: storagePath, _pending: true };
+        if (onUpload) onUpload(pending);
+      } else {
+        const saved = await db.saveFoto({ pieza_id: pieceId, posicion: pos, url, storage_path: storagePath });
+        if (onUpload) onUpload(saved);
+      }
     } catch (e) { alert("Error reemplazando: " + e.message); }
     setUploading(null);
   };
@@ -738,8 +749,8 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
       </div>
 
       {/* Photos - available for new AND existing pieces */}
-      <PhotoUploader pieceId={f.id} fotos={localFotos}
-        onUpload={(saved) => { if (saved) setLocalFotos(prev => [...prev, saved]); }}
+      <PhotoUploader pieceId={f.id} fotos={localFotos} isNew={!piece}
+        onUpload={(saved) => { if (saved) setLocalFotos(prev => [...prev.filter(ft => ft.posicion !== saved.posicion), saved]); }}
         onDelete={async (foto) => { try { await db.softDelFoto(foto.id); setLocalFotos(prev => prev.filter(ft => ft.id !== foto.id)); } catch(e) { alert("Error: " + e.message); } }} />
 
       {/* Catalog toggle */}
@@ -752,7 +763,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
       {f.publish_catalog && <Fl label="Descripción para catálogo"><textarea className="ti" rows={2} value={f.catalog_description || ""} onChange={e => u("catalog_description", e.target.value)} placeholder="Descripción visible en el catálogo público..." /></Fl>}
 
       <Fl label="Notas internas"><textarea className="ti" rows={2} value={f.notes || ""} onChange={e => u("notes", e.target.value)} /></Fl>
-      <div className="flex gap-3 pt-2"><BtnP onClick={() => onSave({ ...f, _newCapital: combinedFin ? newCapital : 0 })}>Guardar Pieza</BtnP><BtnS onClick={onClose}>Cancelar</BtnS></div>
+      <div className="flex gap-3 pt-2"><BtnP onClick={() => onSave({ ...f, _newCapital: combinedFin ? newCapital : 0, _pendingFotos: localFotos.filter(ft => ft._pending) })}>Guardar Pieza</BtnP><BtnS onClick={onClose}>Cancelar</BtnS></div>
     </div>
   );
 }
@@ -1099,7 +1110,8 @@ export default function App() {
   const hAddPc = useCallback(async (p) => {
     try {
       const newCap = p._newCapital || 0;
-      const cleanP = { ...p }; delete cleanP._newCapital;
+      const pendingFotos = p._pendingFotos || [];
+      const cleanP = { ...p }; delete cleanP._newCapital; delete cleanP._pendingFotos;
       const isNA = cleanP.fondo_id === "NA";
 
       // Nueva Aportación: register full cost as capital into FIC, then piece goes to FIC
@@ -1112,15 +1124,23 @@ export default function App() {
         await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: newCap, fondo_id: cleanP.fondo_id, descripcion: `Aportación parcial para ${cleanP.name} (financiamiento combinado)`, metodo_pago: "SPEI", partner_id: user?.id });
       }
 
+      // Save piece FIRST (so FK constraint is satisfied)
       await db.savePiece(cleanP);
+
+      // Now save pending photos (piece exists in DB)
+      for (const foto of pendingFotos) {
+        try { await db.saveFoto({ pieza_id: foto.pieza_id, posicion: foto.posicion, url: foto.url, storage_path: foto.storage_path }); }
+        catch (fe) { console.error("Foto save error:", fe); }
+      }
+
       await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: cleanP.entry_type === "trade_in" ? "TRADE" : "BUY", pieza_id: cleanP.id, monto: cleanP.entry_type === "trade_in" ? 0 : -(cleanP.cost || 0), fondo_id: cleanP.fondo_id, descripcion: `${etLabel(cleanP.entry_type)} — ${cleanP.name}`, metodo_pago: "SPEI" });
-      showToast(`${cleanP.name} registrada`);
+      showToast(`${cleanP.name} registrada${pendingFotos.length ? ` con ${pendingFotos.length} foto(s)` : ""}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, user]);
 
   const hUpdPc = useCallback(async (p) => {
-    try { await db.savePiece(p); showToast("Pieza actualizada"); await refresh(); cm(); }
+    try { const cleanP = { ...p }; delete cleanP._newCapital; delete cleanP._pendingFotos; await db.savePiece(cleanP); showToast("Pieza actualizada"); await refresh(); cm(); }
     catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm]);
 
