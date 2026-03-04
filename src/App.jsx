@@ -1428,9 +1428,9 @@ export default function App() {
             </div>
             <Cd className="p-5">
               <h3 className="fd font-semibold text-white mb-4">Distribución de Utilidades</h3>
-              <div className="grid grid-cols-4 gap-4 text-center">
+              <div className={`grid gap-4 text-center`} style={{ gridTemplateColumns: `repeat(${(data.socios?.length || 0) + 1}, 1fr)` }}>
                 <div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Total</span><div className="fd text-xl font-bold" style={{ color: "var(--gn)" }}>{fmxn(comp.rp)}</div></div>
-                {pSplit(comp.rp).map(p => <div key={p.id}><span className="fb text-xs" style={{ color: p.color }}>{p.short} {p.pct}%</span><div className="fd text-lg font-bold text-white">{fmxn(p.share)}</div></div>)}
+                {(data.socios || []).map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name} {s.participacion}%</span><div className="fd text-lg font-bold text-white">{fmxn(Math.round(comp.rp * (Number(s.participacion) / 100)))}</div></div>)}
               </div>
             </Cd>
           </div>
