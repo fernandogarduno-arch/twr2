@@ -115,7 +115,11 @@ const CONDS = ["Nuevo/Sin uso","Como nuevo","Mint","Excelente","Muy bueno","Buen
 const AUTHS = [{c:"NONE",n:"Sin autenticar",l:0},{c:"VISUAL",n:"Inspección visual",l:1},{c:"SERIAL",n:"Serial verificado",l:2},{c:"MOVEMENT",n:"Movimiento abierto",l:3},{c:"THIRD",n:"Tercero certificado",l:4},{c:"BRAND",n:"Certificado de marca",l:5}];
 const PAYS = ["SPEI","Efectivo MXN","Efectivo USD","Wire USD","Trade","Trade+Cash","Escrow","Tarjeta"];
 const ETYPES = [{v:"adquisicion",l:"Adquisición"},{v:"trade_in",l:"Trade-in"},{v:"consignacion",l:"Consignación"}];
-const XTYPES = [{v:"venta",l:"Venta"},{v:"trade_out",l:"Trade-out"},{v:"retorno_consignacion",l:"Retorno consignación"}];
+const DIAL_COLORS = ["Negro","Blanco","Azul","Verde","Gris","Plata","Champagne","Oro Rosa","Marrón","Burdeo","Rojo","Amarillo","Naranja","Madre Perla","Skeleton","Otro"];
+const BEZEL_TYPES = ["Liso","Fluted","Giratorio Uni","Giratorio Bi","Tachymeter","GMT","Diamantes","Cerámico","Count-up","Ninguno","Otro"];
+const STRAP_TYPES = ["Acero Oyster","Acero Jubilee","Acero President","Acero Integrado","Caucho","Piel Cocodrilo","Piel Becerro","NATO/Nylon","Titanio","Oro","Cerámica","Otro"];
+const EXIT_TYPES = [{v:"venta",l:"Venta"},{v:"trade_out",l:"Trade Out"},{v:"retorno_consignacion",l:"Retorno consignación"}];
+const xtLabel = v => EXIT_TYPES.find(e => e.v === v)?.l || v;
 const FUND_INFO = {
   FIC: { short:"Fondo de Inversión", full:"Fondo de Inversión Compartida", desc:"Fondo común. Utilidades se reparten según participación de socios.", icon:"🏦" },
   FP1: { short:"Fondo Personal 1", full:"Fondo Personal 1 — Fernando", desc:"Operaciones independientes de Fernando. 100% utilidad.", icon:"👤" },
@@ -147,7 +151,6 @@ const DOC_TYPES = [
 ];
 
 const etLabel = v => ETYPES.find(e => e.v === v)?.l || v;
-const xtLabel = v => XTYPES.find(e => e.v === v)?.l || v;
 
 /* ═══ GLOBAL STYLES ═══ */
 const SID = "twr-css-13";
@@ -537,6 +540,10 @@ function PublicCatalog() {
           <div className="grid grid-cols-2 gap-3">
             {p.condition && <div className="p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)" }}><div className="fb text-xs" style={{ color: "var(--cd)" }}>Condición</div><div className="fb text-sm font-semibold text-white">{p.condition}</div></div>}
             {p.auth_level && p.auth_level !== "NONE" && <div className="p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)" }}><div className="fb text-xs" style={{ color: "var(--cd)" }}>Autenticación</div><div className="fb text-sm font-semibold text-white">{AUTHS.find(a => a.c === p.auth_level)?.n || p.auth_level}</div></div>}
+            {p.case_size && <div className="p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)" }}><div className="fb text-xs" style={{ color: "var(--cd)" }}>Caja</div><div className="fb text-sm font-semibold text-white">{p.case_size}mm</div></div>}
+            {p.dial_color && <div className="p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)" }}><div className="fb text-xs" style={{ color: "var(--cd)" }}>Dial</div><div className="fb text-sm font-semibold text-white">{p.dial_color}</div></div>}
+            {p.bezel_type && <div className="p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)" }}><div className="fb text-xs" style={{ color: "var(--cd)" }}>Bisel</div><div className="fb text-sm font-semibold text-white">{p.bezel_type}</div></div>}
+            {p.strap_type && <div className="p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)" }}><div className="fb text-xs" style={{ color: "var(--cd)" }}>Brazalete</div><div className="fb text-sm font-semibold text-white">{p.strap_type}</div></div>}
           </div>
           {p.catalog_description && <div className="fb text-sm leading-relaxed" style={{ color: "var(--cd)" }}>{p.catalog_description}</div>}
           {p.sku && <div className="fb text-xs" style={{ color: "rgba(255,255,255,.2)" }}>SKU: {p.sku}</div>}
@@ -656,7 +663,7 @@ function LoginScreen({ onLogin }) {
    ═══════════════════════════════════════════════════════════════════ */
 function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId }) {
   const autoSku = piece?.sku || genSku(allPieces);
-  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "" };
+  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "" };
   const [f, sF] = useState(piece ? { ...blank, ...piece } : blank);
   const [localFotos, setLocalFotos] = useState(fotosProp || []);
   const [combinedFin, setCombinedFin] = useState(false);
@@ -687,6 +694,14 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
         <Fl label="Número de Serie"><input className="ti" value={f.serial || ""} onChange={e => u("serial", e.target.value)} /></Fl>
         <Fl label="Condición"><select className="ti" value={f.condition} onChange={e => u("condition", e.target.value)}>{CONDS.map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
         <Fl label="Autenticación"><select className="ti" value={f.auth_level} onChange={e => u("auth_level", e.target.value)}>{AUTHS.map(a => <option key={a.c} value={a.c}>Nv.{a.l} — {a.n}</option>)}</select></Fl>
+      </div>
+
+      {/* Watch details */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Fl label="Color Dial"><select className="ti" value={f.dial_color || ""} onChange={e => u("dial_color", e.target.value)}><option value="">—</option>{DIAL_COLORS.map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
+        <Fl label="Bisel"><select className="ti" value={f.bezel_type || ""} onChange={e => u("bezel_type", e.target.value)}><option value="">—</option>{BEZEL_TYPES.map(b => <option key={b} value={b}>{b}</option>)}</select></Fl>
+        <Fl label="Caja (mm)"><input className="ti" value={f.case_size || ""} onChange={e => u("case_size", e.target.value)} placeholder="41" /></Fl>
+        <Fl label="Correa / Brazalete"><select className="ti" value={f.strap_type || ""} onChange={e => u("strap_type", e.target.value)}><option value="">—</option>{STRAP_TYPES.map(s => <option key={s} value={s}>{s}</option>)}</select></Fl>
       </div>
 
       {/* Origen del recurso + financiamiento combinado */}
@@ -774,11 +789,21 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
 }
 
 /* ═══ SELL FORM ═══ */
-function SellForm({ piece, onSave, onClose, docs, socios }) {
+function SellForm({ piece, onSave, onClose, docs, socios, allPieces }) {
   const [f, sF] = useState({ xPrice: piece.price_asked || 0, xDate: td(), cDate: td(), payOut: "SPEI", xType: "venta", xFund: "FIC" });
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const c = piece.cost || 0;
   const pr = f.xPrice - c;
+  const isTrade = f.xType === "trade_out";
+
+  // Trade-out state
+  const [incoming, setIncoming] = useState([]);
+  const [cashOut, setCashOut] = useState(0);
+  const [cashIn, setCashIn] = useState(0);
+  const addIn = () => setIncoming(p => [...p, { id: uid(), brand: "", model: "", ref: "", value: 0 }]);
+  const updIn = (id, k, v) => setIncoming(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
+  const remIn = (id) => setIncoming(p => p.filter(x => x.id !== id));
+  const totalIn = incoming.reduce((s, p) => s + (p.value || 0), 0);
 
   return (
     <div className="space-y-4">
@@ -788,27 +813,83 @@ function SellForm({ piece, onSave, onClose, docs, socios }) {
       </Cd>
 
       <div className="grid grid-cols-2 gap-3">
-        <Fl label="Tipo de Salida"><select className="ti" value={f.xType} onChange={e => u("xType", e.target.value)}><option value="venta">Venta</option><option value="retorno_consignacion">Retorno consignación</option></select></Fl>
-        <Fl label="Precio de Venta" req><input type="number" className="ti" value={f.xPrice} onChange={e => u("xPrice", Number(e.target.value))} /></Fl>
+        <Fl label="Tipo de Salida" req><select className="ti" value={f.xType} onChange={e => u("xType", e.target.value)}>{EXIT_TYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Fl>
+        {!isTrade && <Fl label="Precio de Venta" req><input type="number" className="ti" value={f.xPrice} onChange={e => u("xPrice", Number(e.target.value))} /></Fl>}
+        {isTrade && <Fl label="Valor de salida"><div className="fd font-bold text-lg text-white pt-1">{fmxn(c)}</div></Fl>}
       </div>
 
-      {/* Destino del recurso */}
-      <div className="rounded-xl p-4" style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.12)" }}>
-        <div className="flex items-center gap-2 mb-3">
-          <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gn)" }}>↑ Destino del Recurso</span>
-          <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿A qué fondo entra el dinero?</span>
+      {/* ═══ TRADE OUT SECTION ═══ */}
+      {isTrade && (
+        <>
+          {/* Incoming pieces */}
+          <div className="rounded-xl p-4" style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.1)" }}>
+            <div className="flex justify-between items-center mb-3">
+              <div className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gn)" }}>⬇ Piezas que entran</div>
+              <button type="button" onClick={addIn} className="fb text-xs px-3 py-1 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.15)", color: "var(--gn)" }}>+ Agregar</button>
+            </div>
+            {incoming.length === 0 && <div className="fb text-sm text-center py-4" style={{ color: "var(--cd)" }}>Agrega al menos 1 pieza que recibes a cambio</div>}
+            {incoming.map(item => {
+              const ms = getModels(item.brand); const rs = getRefs(item.brand, item.model);
+              return (
+                <div key={item.id} className="p-3 rounded-lg mb-2" style={{ background: "rgba(74,222,128,.06)" }}>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.brand} onChange={e => { updIn(item.id, "brand", e.target.value); updIn(item.id, "model", ""); }}>
+                      <option value="">Marca...</option>{BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                    {ms.length > 0 ? <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.model} onChange={e => updIn(item.id, "model", e.target.value)}><option value="">Modelo...</option>{ms.map(m => <option key={m} value={m}>{m}</option>)}</select>
+                      : <input className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.model} placeholder="Modelo" onChange={e => updIn(item.id, "model", e.target.value)} />}
+                    {rs.length > 0 ? <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.ref} onChange={e => updIn(item.id, "ref", e.target.value)}><option value="">Ref...</option>{rs.map(r => <option key={r} value={r}>{r}</option>)}</select>
+                      : <input className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.ref} placeholder="Ref." onChange={e => updIn(item.id, "ref", e.target.value)} />}
+                    <div className="flex gap-1"><input type="number" className="ti flex-1" style={{ fontSize: 12, padding: "6px 10px", fontWeight: 700 }} placeholder="Valor $" value={item.value || ""} onChange={e => updIn(item.id, "value", Number(e.target.value))} /><BtnD onClick={() => remIn(item.id)}>✕</BtnD></div>
+                  </div>
+                </div>
+              );
+            })}
+            {totalIn > 0 && <div className="flex justify-between pt-2 mt-2" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}><span className="fb text-xs font-bold" style={{ color: "var(--gn)" }}>Total ({incoming.length})</span><span className="fd font-bold" style={{ color: "var(--gn)" }}>{fmxn(totalIn)}</span></div>}
+          </div>
+
+          {/* Cash difference */}
+          <div className="rounded-xl p-4" style={{ background: "rgba(96,165,250,.04)", border: "1px solid rgba(96,165,250,.1)" }}>
+            <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--bl)" }}>💰 Diferencia en Efectivo</div>
+            <div className="grid grid-cols-2 gap-3">
+              <Fl label="Nosotros pagamos" hint="Sale del fondo"><input type="number" className="ti" value={cashOut} onChange={e => setCashOut(Number(e.target.value))} placeholder="0" /></Fl>
+              <Fl label="Nosotros recibimos" hint="Entra al fondo"><input type="number" className="ti" value={cashIn} onChange={e => setCashIn(Number(e.target.value))} placeholder="0" /></Fl>
+            </div>
+            {(cashOut > 0 || cashIn > 0) && <div className="mt-2 fb text-xs p-2 rounded-lg" style={{ background: "rgba(96,165,250,.08)", color: "var(--bl)" }}>
+              {cashOut > 0 && <span>↑ {fmxn(cashOut)} sale del fondo</span>}
+              {cashOut > 0 && cashIn > 0 && <span> · </span>}
+              {cashIn > 0 && <span>↓ {fmxn(cashIn)} entra al fondo</span>}
+            </div>}
+          </div>
+
+          {/* Trade balance */}
+          <div className="rounded-xl p-3 grid grid-cols-3 gap-2 text-center" style={{ background: "rgba(201,169,110,.08)" }}>
+            <div><div className="fb text-xs" style={{ color: "var(--rd)" }}>Sale</div><div className="fd font-bold text-white">{fmxn(c)}</div></div>
+            <div><div className="fb text-xs" style={{ color: "var(--gn)" }}>Entra</div><div className="fd font-bold text-white">{fmxn(totalIn)}</div></div>
+            <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Neto $</div><div className="fd font-bold" style={{ color: (totalIn + cashIn - cashOut - c) >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(totalIn + cashIn - cashOut - c)}</div></div>
+          </div>
+        </>
+      )}
+
+      {/* Destino del recurso — only for sales */}
+      {!isTrade && (
+        <div className="rounded-xl p-4" style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.12)" }}>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gn)" }}>↑ Destino del Recurso</span>
+            <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿A qué fondo entra el dinero?</span>
+          </div>
+          <FundSel value={f.xFund} onChange={v => u("xFund", v)} funds={FUNDS_REAL} />
         </div>
-        <FundSel value={f.xFund} onChange={v => u("xFund", v)} funds={FUNDS_REAL} />
-      </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Fl label="Fecha Venta"><input type="date" className="ti" value={f.xDate} onChange={e => u("xDate", e.target.value)} /></Fl>
-        <Fl label="Fecha Cobro"><input type="date" className="ti" value={f.cDate} onChange={e => u("cDate", e.target.value)} /></Fl>
+        <Fl label={isTrade ? "Fecha Trade" : "Fecha Venta"}><input type="date" className="ti" value={f.xDate} onChange={e => u("xDate", e.target.value)} /></Fl>
+        {!isTrade && <Fl label="Fecha Cobro"><input type="date" className="ti" value={f.cDate} onChange={e => u("cDate", e.target.value)} /></Fl>}
         <Fl label="Método"><select className="ti" value={f.payOut} onChange={e => u("payOut", e.target.value)}>{PAYS.map(m => <option key={m} value={m}>{m}</option>)}</select></Fl>
       </div>
 
-      {/* Profit preview */}
-      {f.xPrice > 0 && (
+      {/* Profit preview — only for sales */}
+      {!isTrade && f.xPrice > 0 && (
         <div className="rounded-xl p-4" style={{ background: pr >= 0 ? "rgba(74,222,128,.06)" : "rgba(251,113,133,.06)", border: pr >= 0 ? "1px solid rgba(74,222,128,.15)" : "1px solid rgba(251,113,133,.15)" }}>
           <div className={`grid gap-3 text-center`} style={{ gridTemplateColumns: `repeat(${(socios?.length || 0) + 1}, 1fr)` }}>
             <div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad</span><br /><span className="fd font-bold text-lg" style={{ color: pr >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(pr)}</span></div>
@@ -818,10 +899,17 @@ function SellForm({ piece, onSave, onClose, docs, socios }) {
       )}
 
       {/* Documents */}
-      <DocUploader entityType="venta" entityId={piece.id} requiredDocs={["identificacion", "contrato", "comprobante_pago"]} docs={docs} onUpload={() => {}} />
+      <DocUploader entityType={isTrade ? "trade" : "venta"} entityId={piece.id} requiredDocs={isTrade ? ["identificacion", "contrato"] : ["identificacion", "contrato", "comprobante_pago"]} docs={docs} onUpload={() => {}} />
 
       <div className="flex gap-3 pt-2">
-        <BtnG onClick={() => onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: f.xType, exit_fund: f.xFund, ...f })}>Registrar Venta</BtnG>
+        {isTrade ? (
+          <BtnG onClick={() => {
+            if (incoming.length === 0 || !incoming.some(i => i.brand && i.value > 0)) return alert("Agrega al menos 1 pieza que recibes");
+            onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: "trade_out", exit_fund: piece.fondo_id, ...f, _tradeIncoming: incoming, _cashOut: cashOut, _cashIn: cashIn });
+          }}>Registrar Trade Out</BtnG>
+        ) : (
+          <BtnG onClick={() => onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: f.xType, exit_fund: f.xFund, ...f })}>Registrar Venta</BtnG>
+        )}
         <BtnS onClick={onClose}>Cancelar</BtnS>
       </div>
     </div>
@@ -1188,14 +1276,44 @@ export default function App() {
   const hSell = useCallback(async (p) => {
     try {
       const cost = p.cost || 0;
+
+      // ═══ TRADE OUT (from SellForm) ═══
+      if (p.exit_type === "trade_out") {
+        const incoming = p._tradeIncoming || [];
+        const cashOut_ = p._cashOut || 0;
+        const cashIn_ = p._cashIn || 0;
+        const trRef = "TR-" + Date.now().toString(36).slice(-5).toUpperCase();
+        const fondo = p.fondo_id || "FIC";
+
+        // Mark piece as traded out
+        await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: "trade_out", trade_ref: trRef });
+
+        // Create incoming pieces
+        for (const item of incoming) {
+          const np = { id: uid(), sku: genSku(data.pieces), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: p.xDate, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef}`, trade_ref: trRef };
+          await db.savePiece(np);
+        }
+
+        // Trade transaction (no profit)
+        const desc = `Trade ${trRef}: ${p.name} → ${incoming.map(i => [i.brand, i.model].filter(Boolean).join(" ")).join(" + ")}`;
+        await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "TRADE", pieza_id: p.id, monto: 0, fondo_id: fondo, descripcion: desc, metodo_pago: "Trade", trade_ref: trRef });
+
+        if (cashOut_ > 0) await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "TRADE", pieza_id: p.id, monto: -(cashOut_), fondo_id: fondo, descripcion: `${trRef} — Diferencia pagada (sale del fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
+        if (cashIn_ > 0) await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "TRADE", pieza_id: p.id, monto: cashIn_, fondo_id: fondo, descripcion: `${trRef} — Diferencia recibida (entra al fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
+
+        showToast(`Trade registrado: ${p.name} → ${incoming.length} pieza(s)`);
+        await refresh(); cm();
+        return;
+      }
+
+      // ═══ REGULAR SALE ═══
       const profit = p.xPrice - cost;
       await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: p.xType, exit_fund: p.xFund });
-      // Record sale (revenue enters fund)
       await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, descripcion: `Venta ${p.name} → ${FUND_INFO[p.xFund]?.short} (Costo: ${fmxn(cost)}, Utilidad: ${fmxn(profit)})`, metodo_pago: p.payOut });
       showToast(`Venta registrada: ${p.name} — Utilidad: ${fmxn(profit)}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
-  }, [refresh, cm]);
+  }, [refresh, cm, data]);
 
   const hTrade = useCallback(async (td_) => {
     try {
@@ -1292,7 +1410,7 @@ export default function App() {
               <div className="flex gap-2"><BtnP onClick={() => setModal("ap")}><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Pieza</span></BtnP><BtnS onClick={() => setModal("ac")}>Capital</BtnS></div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <St label="Capital Aportado" value={fmxn(comp.cap)} />
+              <St label="Total Aportación" value={fmxn(comp.cash + comp.invC)} />
               <St label="Cash en Fondo" value={fmxn(comp.cash)} accent="var(--bl)" />
               <St label="Inventario (Costo)" value={fmxn(comp.invC)} accent="var(--gd)" />
               <St label="Utilidad Realizada" value={fmxn(comp.rp)} accent="var(--gn)" />
@@ -1447,7 +1565,7 @@ export default function App() {
       {/* MODALS */}
       <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} /></Md>
       <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} />}</Md>
-      <Md open={modal === "sell"} onClose={cm} title={"Venta — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} />}</Md>
+      <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} />}</Md>
       <Md open={modal === "trade"} onClose={cm} title={"Trade-out — " + (sel?.name || "")} wide>{sel && <TradeForm piece={sel} allPieces={data.pieces} onSave={hTrade} onClose={cm} />}</Md>
       <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} />}</Md>
       <Md open={modal === "ct"} onClose={cm} title="Nuevo Corte Mensual">{<CorteForm onSave={async (c) => { try { await db.saveCorte(c); showToast("Corte registrado"); await refresh(); cm(); } catch (e) { alert(e.message); } }} onClose={cm} socios={data.socios} />}</Md>
