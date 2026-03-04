@@ -116,8 +116,10 @@ const FUND_INFO = {
   FIC: { short:"Fondo de Inversión", full:"Fondo de Inversión Compartida", desc:"Fondo común. Fernando 40% · Socio A 30% · Socio B 30%.", icon:"🏦" },
   FP1: { short:"Fondo Personal 1", full:"Fondo Personal 1 — Fernando", desc:"Operaciones independientes de Fernando. 100% utilidad.", icon:"👤" },
   FP2: { short:"Fondo Personal 2", full:"Fondo Personal 2 — La Sociedad", desc:"Operaciones de La Sociedad. 50/50 socios.", icon:"👥" },
+  NA:  { short:"Nueva Aportación", full:"Nueva Aportación de Capital", desc:"Dinero nuevo. Se registra como capital y la pieza entra al FIC.", icon:"💰" },
 };
 const FUNDS = Object.keys(FUND_INFO);
+const FUNDS_REAL = FUNDS.filter(f => f !== "NA"); // Fondos reales (sin Nueva Aportación)
 const PARTNERS = [{id:"fernando",name:"Fernando Cervantes",short:"Fernando",role:"DPM · Socio Operador",pct:40,color:"#4ADE80"},{id:"socioA",name:"Socio A",short:"Socio A",role:"La Sociedad",pct:30,color:"#60A5FA"},{id:"socioB",name:"Socio B (Externo)",short:"Socio B",role:"Socio Capitalista",pct:30,color:"#C084FC"}];
 const PM = Object.fromEntries(PARTNERS.map(p => [p.id, p]));
 const pSplit = (t) => PARTNERS.map(p => ({ ...p, share: Math.round(t * (p.pct / 100)) }));
@@ -205,7 +207,7 @@ const BtnG=({children,onClick,disabled})=><button type="button" onClick={onClick
 const BtnD=({children,onClick})=><button type="button" onClick={onClick} className="fb px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-900/30" style={{color:"var(--rd)"}}>{children}</button>;
 
 /* ═══ FUND SELECTOR (compact for mobile) ═══ */
-function FundSel({value,onChange,label}){return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{FUNDS.map(fk=>{const fi=FUND_INFO[fk];const s=value===fk;return <button key={fk} type="button" onClick={()=>onChange(fk)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(201,169,110,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{fi.icon}</span><span className="fb font-semibold text-sm text-white flex-1">{fi.short}</span>{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
+function FundSel({value,onChange,label,funds}){const flist=funds||FUNDS;return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{flist.map(fk=>{const fi=FUND_INFO[fk];if(!fi)return null;const s=value===fk;return <button key={fk} type="button" onClick={()=>onChange(fk)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(201,169,110,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{fi.icon}</span><span className="fb font-semibold text-sm text-white flex-1">{fi.short}</span>{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
 
 /* ═══ PHOTO UPLOAD COMPONENT ═══ */
 function PhotoUploader({ pieceId, fotos, onUpload, onDelete }) {
@@ -636,11 +638,14 @@ function LoginScreen({ onLogin }) {
 /* ═══════════════════════════════════════════════════════════════════
    PIECE FORM — Full form with photos, docs, custom refs
    ═══════════════════════════════════════════════════════════════════ */
-function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs }) {
+function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId }) {
   const autoSku = piece?.sku || genSku(allPieces);
   const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "" };
   const [f, sF] = useState(piece ? { ...blank, ...piece } : blank);
   const [localFotos, setLocalFotos] = useState(fotosProp || []);
+  const [combinedFin, setCombinedFin] = useState(false);
+  const [newCapital, setNewCapital] = useState(0);
+  const fromFund = Math.max(0, (f.cost || 0) - newCapital);
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const autoName = (b, m) => [b, m].filter(Boolean).join(" ");
 
@@ -668,13 +673,50 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
         <Fl label="Autenticación"><select className="ti" value={f.auth_level} onChange={e => u("auth_level", e.target.value)}>{AUTHS.map(a => <option key={a.c} value={a.c}>Nv.{a.l} — {a.n}</option>)}</select></Fl>
       </div>
 
-      {/* Origen del recurso */}
+      {/* Origen del recurso + financiamiento combinado */}
       <div className="rounded-xl p-4" style={{ background: "rgba(96,165,250,.04)", border: "1px solid rgba(96,165,250,.12)" }}>
         <div className="flex items-center gap-2 mb-3">
           <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--bl)" }}>↓ Origen del Recurso</span>
           <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿De dónde sale el dinero?</span>
         </div>
-        <FundSel value={f.fondo_id} onChange={v => u("fondo_id", v)} />
+        <FundSel value={f.fondo_id} onChange={v => { u("fondo_id", v); if (v === "NA") { setCombinedFin(false); setNewCapital(0); } }} />
+        {f.fondo_id === "NA" && f.cost > 0 && (
+          <div className="mt-2 fb text-xs p-3 rounded-lg" style={{ background: "rgba(74,222,128,.06)", color: "var(--gn)" }}>
+            💰 Se registrará una inyección de capital de <strong>{fmxn(f.cost)}</strong> al Fondo de Inversión Compartida (FIC). La pieza queda en el FIC y la utilidad se divide 40/60 al venderla.
+          </div>
+        )}
+
+        {!piece && f.cost > 0 && f.fondo_id !== "NA" && (
+          <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={combinedFin} onChange={e => { setCombinedFin(e.target.checked); if (!e.target.checked) setNewCapital(0); }} className="w-4 h-4 rounded" />
+              <span className="fb text-sm text-white">Financiamiento combinado</span>
+              <span className="fb text-xs" style={{ color: "var(--cd)" }}>— No alcanza el fondo, necesito aportar</span>
+            </label>
+            {combinedFin && (
+              <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}>
+                    <div className="fb text-xs" style={{ color: "var(--bl)" }}>Del {FUND_INFO[f.fondo_id]?.short || "Fondo"}</div>
+                    <div className="fd font-bold text-lg text-white">{fmxn(fromFund)}</div>
+                  </div>
+                  <div className="rounded-xl p-3 text-center" style={{ background: "rgba(74,222,128,.06)" }}>
+                    <div className="fb text-xs" style={{ color: "var(--gn)" }}>Nueva Aportación</div>
+                    <div className="fd font-bold text-lg" style={{ color: "var(--gn)" }}>{fmxn(newCapital)}</div>
+                  </div>
+                </div>
+                <Fl label="Monto de nueva aportación (MXN)" hint="Se registra como inyección de capital al fondo">
+                  <input type="number" className="ti" value={newCapital || ""} onChange={e => { const v = Math.min(Number(e.target.value), f.cost); setNewCapital(v); }} />
+                </Fl>
+                {newCapital > 0 && (
+                  <div className="fb text-xs p-2 rounded-lg" style={{ background: "rgba(74,222,128,.06)", color: "var(--gn)" }}>
+                    Se registrará una inyección de capital de {fmxn(newCapital)} al {FUND_INFO[f.fondo_id]?.short || "fondo"} antes de la compra.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -695,10 +737,10 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
         </div>
       </div>
 
-      {/* Photos (only for existing pieces) */}
-      {piece && <PhotoUploader pieceId={piece.id} fotos={localFotos}
+      {/* Photos - available for new AND existing pieces */}
+      <PhotoUploader pieceId={f.id} fotos={localFotos}
         onUpload={(saved) => { if (saved) setLocalFotos(prev => [...prev, saved]); }}
-        onDelete={async (foto) => { try { await db.softDelFoto(foto.id); setLocalFotos(prev => prev.filter(f => f.id !== foto.id)); } catch(e) { alert("Error: " + e.message); } }} />}
+        onDelete={async (foto) => { try { await db.softDelFoto(foto.id); setLocalFotos(prev => prev.filter(ft => ft.id !== foto.id)); } catch(e) { alert("Error: " + e.message); } }} />
 
       {/* Catalog toggle */}
       <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
@@ -710,7 +752,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
       {f.publish_catalog && <Fl label="Descripción para catálogo"><textarea className="ti" rows={2} value={f.catalog_description || ""} onChange={e => u("catalog_description", e.target.value)} placeholder="Descripción visible en el catálogo público..." /></Fl>}
 
       <Fl label="Notas internas"><textarea className="ti" rows={2} value={f.notes || ""} onChange={e => u("notes", e.target.value)} /></Fl>
-      <div className="flex gap-3 pt-2"><BtnP onClick={() => onSave(f)}>Guardar Pieza</BtnP><BtnS onClick={onClose}>Cancelar</BtnS></div>
+      <div className="flex gap-3 pt-2"><BtnP onClick={() => onSave({ ...f, _newCapital: combinedFin ? newCapital : 0 })}>Guardar Pieza</BtnP><BtnS onClick={onClose}>Cancelar</BtnS></div>
     </div>
   );
 }
@@ -740,7 +782,7 @@ function SellForm({ piece, onSave, onClose, docs }) {
           <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gn)" }}>↑ Destino del Recurso</span>
           <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿A qué fondo entra el dinero?</span>
         </div>
-        <FundSel value={f.xFund} onChange={v => u("xFund", v)} />
+        <FundSel value={f.xFund} onChange={v => u("xFund", v)} funds={FUNDS_REAL} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -949,12 +991,26 @@ export default function App() {
   /* ═══ HANDLERS ═══ */
   const hAddPc = useCallback(async (p) => {
     try {
-      await db.savePiece(p);
-      await db.saveTx({ id: uid(), fecha: p.entry_date, tipo: p.entry_type === "trade_in" ? "TRADE" : "BUY", pieza_id: p.id, monto: p.entry_type === "trade_in" ? 0 : -(p.cost || 0), fondo_id: p.fondo_id, descripcion: `${etLabel(p.entry_type)} — ${p.name}`, metodo_pago: "SPEI" });
-      showToast(`${p.name} registrada`);
+      const newCap = p._newCapital || 0;
+      const cleanP = { ...p }; delete cleanP._newCapital;
+      const isNA = cleanP.fondo_id === "NA";
+
+      // Nueva Aportación: register full cost as capital into FIC, then piece goes to FIC
+      if (isNA) {
+        await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: cleanP.cost, fondo_id: "FIC", descripcion: `Nueva aportación para ${cleanP.name}`, metodo_pago: "SPEI", partner_id: user?.id });
+        cleanP.fondo_id = "FIC";
+      }
+      // Combined financing: partial capital injection
+      else if (newCap > 0) {
+        await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: newCap, fondo_id: cleanP.fondo_id, descripcion: `Aportación parcial para ${cleanP.name} (financiamiento combinado)`, metodo_pago: "SPEI", partner_id: user?.id });
+      }
+
+      await db.savePiece(cleanP);
+      await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: cleanP.entry_type === "trade_in" ? "TRADE" : "BUY", pieza_id: cleanP.id, monto: cleanP.entry_type === "trade_in" ? 0 : -(cleanP.cost || 0), fondo_id: cleanP.fondo_id, descripcion: `${etLabel(cleanP.entry_type)} — ${cleanP.name}`, metodo_pago: "SPEI" });
+      showToast(`${cleanP.name} registrada`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
-  }, [refresh, cm]);
+  }, [refresh, cm, user]);
 
   const hUpdPc = useCallback(async (p) => {
     try { await db.savePiece(p); showToast("Pieza actualizada"); await refresh(); cm(); }
@@ -1067,9 +1123,10 @@ export default function App() {
               <div><h1 className="fd text-2xl md:text-3xl font-bold text-white">Dashboard</h1></div>
               <div className="flex gap-2"><BtnP onClick={() => setModal("ap")}><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Pieza</span></BtnP><BtnS onClick={() => setModal("ac")}>Capital</BtnS></div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <St label="Capital" value={fmxn(comp.cap)} />
-              <St label="NAV" value={fmxn(comp.nav)} accent="var(--bl)" />
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <St label="Capital Aportado" value={fmxn(comp.cap)} />
+              <St label="Cash en Fondo" value={fmxn(comp.cash)} accent="var(--bl)" />
+              <St label="Inventario (Costo)" value={fmxn(comp.invC)} accent="var(--gd)" />
               <St label="Utilidad Realizada" value={fmxn(comp.rp)} accent="var(--gn)" />
               <St label="MOIC" value={`${(comp.moic || 0).toFixed(2)}x`} accent="var(--pr)" />
             </div>
@@ -1093,7 +1150,7 @@ export default function App() {
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {FUNDS.map(fk => <Cd key={fk} className="p-4"><div className="flex items-center gap-2 mb-1"><span>{FUND_INFO[fk].icon}</span><span className="fb font-semibold text-sm text-white">{FUND_INFO[fk].full}</span></div><div className="fb text-xs" style={{ color: "var(--cd)" }}>{FUND_INFO[fk].desc}</div></Cd>)}
+              {FUNDS_REAL.map(fk => <Cd key={fk} className="p-4"><div className="flex items-center gap-2 mb-1"><span>{FUND_INFO[fk].icon}</span><span className="fb font-semibold text-sm text-white">{FUND_INFO[fk].full}</span></div><div className="fb text-xs" style={{ color: "var(--cd)" }}>{FUND_INFO[fk].desc}</div></Cd>)}
             </div>
             <Cd>
               <div className="px-4 py-3 flex justify-between items-center" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}>
@@ -1310,8 +1367,8 @@ export default function App() {
       {toast && <div className="fixed bottom-4 right-4 z-50 fb text-sm px-4 py-3 rounded-xl shadow-lg au" style={{ background: toast.type === "ok" ? "#166534" : "rgba(251,113,133,.2)", color: toast.type === "ok" ? "var(--gn)" : "var(--rd)" }}>{toast.msg}</div>}
 
       {/* MODALS */}
-      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} /></Md>
-      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} />}</Md>
+      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} /></Md>
+      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} />}</Md>
       <Md open={modal === "sell"} onClose={cm} title={"Venta — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} />}</Md>
       <Md open={modal === "trade"} onClose={cm} title={"Trade-out — " + (sel?.name || "")} wide>{sel && <TradeForm piece={sel} allPieces={data.pieces} onSave={hTrade} onClose={cm} />}</Md>
       <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} />}</Md>
