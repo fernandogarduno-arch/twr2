@@ -209,8 +209,8 @@ function FundSel({value,onChange,label}){return <div>{label&&<label className="f
 
 /* ═══ PHOTO UPLOAD COMPONENT ═══ */
 function PhotoUploader({ pieceId, fotos, onUpload, onDelete }) {
-  const fileRef = useRef(null);
   const [uploading, setUploading] = useState(null);
+  const replaceRefs = useRef({});
 
   const handleUpload = async (pos, file) => {
     if (!file || !pieceId) return;
@@ -220,6 +220,19 @@ function PhotoUploader({ pieceId, fotos, onUpload, onDelete }) {
       const saved = await db.saveFoto({ pieza_id: pieceId, posicion: pos, url, storage_path: storagePath });
       if (onUpload) onUpload(saved);
     } catch (e) { console.error("Upload error:", e); alert("Error subiendo foto: " + e.message); }
+    setUploading(null);
+  };
+
+  const handleReplace = async (pos, existing, file) => {
+    if (!file) return;
+    if (!confirm(`¿Reemplazar la foto de "${PHOTO_POSITIONS.find(p => p.id === pos)?.label}"?`)) return;
+    setUploading(pos);
+    try {
+      if (onDelete) await onDelete(existing);
+      const { url, storagePath } = await stor.uploadFoto(pieceId, pos, file);
+      const saved = await db.saveFoto({ pieza_id: pieceId, posicion: pos, url, storage_path: storagePath });
+      if (onUpload) onUpload(saved);
+    } catch (e) { alert("Error reemplazando: " + e.message); }
     setUploading(null);
   };
 
@@ -235,10 +248,15 @@ function PhotoUploader({ pieceId, fotos, onUpload, onDelete }) {
           return (
             <div key={pos.id} className="relative rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)", aspectRatio: "1" }}>
               {existing ? (
-                <>
+                <label className="w-full h-full cursor-pointer relative">
                   <img src={existing.url} alt={pos.label} className="w-full h-full object-cover" />
-                  <button type="button" onClick={() => onDelete && onDelete(existing)} className="absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs" style={{ background: "rgba(0,0,0,.7)", color: "var(--rd)" }}>✕</button>
-                </>
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-all" style={{ background: "rgba(0,0,0,.55)" }}>
+                    <span className="text-white text-xs font-semibold px-3 py-1.5 rounded-lg" style={{ background: "rgba(255,255,255,.15)", backdropFilter: "blur(4px)" }}>📷 Reemplazar</span>
+                  </div>
+                  <input type="file" accept="image/*" capture="environment" className="hidden"
+                    ref={el => replaceRefs.current[pos.id] = el}
+                    onChange={e => { if (e.target.files?.[0]) handleReplace(pos.id, existing, e.target.files[0]); }} />
+                </label>
               ) : (
                 <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 transition-all">
                   <span className="text-2xl mb-1">{isUp ? "⏳" : pos.icon}</span>
@@ -618,10 +636,11 @@ function LoginScreen({ onLogin }) {
 /* ═══════════════════════════════════════════════════════════════════
    PIECE FORM — Full form with photos, docs, custom refs
    ═══════════════════════════════════════════════════════════════════ */
-function PcForm({ piece, onSave, onClose, allPieces, fotos, customRefs }) {
+function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs }) {
   const autoSku = piece?.sku || genSku(allPieces);
   const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "" };
   const [f, sF] = useState(piece ? { ...blank, ...piece } : blank);
+  const [localFotos, setLocalFotos] = useState(fotosProp || []);
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const autoName = (b, m) => [b, m].filter(Boolean).join(" ");
 
@@ -677,7 +696,9 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos, customRefs }) {
       </div>
 
       {/* Photos (only for existing pieces) */}
-      {piece && <PhotoUploader pieceId={piece.id} fotos={fotos} onUpload={() => {}} />}
+      {piece && <PhotoUploader pieceId={piece.id} fotos={localFotos}
+        onUpload={(saved) => { if (saved) setLocalFotos(prev => [...prev, saved]); }}
+        onDelete={async (foto) => { try { await db.softDelFoto(foto.id); setLocalFotos(prev => prev.filter(f => f.id !== foto.id)); } catch(e) { alert("Error: " + e.message); } }} />}
 
       {/* Catalog toggle */}
       <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
