@@ -15,7 +15,7 @@ const uid = () => "W" + Date.now().toString(36) + Math.random().toString(36).sli
 const fmxn = (n) => { if (n == null || isNaN(n)) return "—"; const a = Math.abs(n); return (n < 0 ? "-" : "") + (a >= 1000 ? `$${a.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : `$${a}`); };
 const td = () => new Date().toISOString().slice(0, 10);
 const calcPr = (c) => ({ price_dealer: Math.round(c * 1.08), price_asked: Math.round(c * 1.15), price_trade: Math.round(c * 1.2) });
-const genSku = (existing) => { const now = td(); const pfx = "TWR-" + now.slice(2, 4) + now.slice(5, 7) + "-"; const n = (existing || []).filter(p => p.sku?.startsWith(pfx)).length; return pfx + String(n + 1).padStart(4, "0"); };
+const genSku = (existing) => { const now = td(); const pfx = "TWR-" + now.slice(2, 4) + now.slice(5, 7) + "-"; const nums = (existing || []).filter(p => p.sku?.startsWith(pfx)).map(p => parseInt(p.sku.slice(pfx.length), 10) || 0); const max = nums.length > 0 ? Math.max(...nums) : 0; return pfx + String(max + 1).padStart(4, "0"); };
 
 /* ═══ STORAGE HELPERS ═══ */
 const BUCKET_FOTOS = "fotos_piezas";
@@ -846,17 +846,49 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces }) {
             </div>
             {incoming.length === 0 && <div className="fb text-sm text-center py-4" style={{ color: "var(--cd)" }}>Agrega al menos 1 pieza que recibes a cambio</div>}
             {incoming.map(item => {
-              const ms = getModels(item.brand); const rs = getRefs(item.brand, item.model);
+              const knownBrand = BRANDS.includes(item.brand);
+              const ms = knownBrand ? getModels(item.brand) : [];
+              const knownModel = ms.includes(item.model);
+              const rs = knownBrand && knownModel ? getRefs(item.brand, item.model) : [];
               return (
                 <div key={item.id} className="p-3 rounded-lg mb-2" style={{ background: "rgba(74,222,128,.06)" }}>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.brand} onChange={e => { updIn(item.id, "brand", e.target.value); updIn(item.id, "model", ""); }}>
-                      <option value="">Marca...</option>{BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
-                    </select>
-                    {ms.length > 0 ? <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.model} onChange={e => updIn(item.id, "model", e.target.value)}><option value="">Modelo...</option>{ms.map(m => <option key={m} value={m}>{m}</option>)}</select>
-                      : <input className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.model} placeholder="Modelo" onChange={e => updIn(item.id, "model", e.target.value)} />}
-                    {rs.length > 0 ? <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.ref} onChange={e => updIn(item.id, "ref", e.target.value)}><option value="">Ref...</option>{rs.map(r => <option key={r} value={r}>{r}</option>)}</select>
-                      : <input className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.ref} placeholder="Ref." onChange={e => updIn(item.id, "ref", e.target.value)} />}
+                    {/* Brand: select or manual */}
+                    {!item._manualBrand ? (
+                      <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.brand} onChange={e => {
+                        if (e.target.value === "__OTHER__") { updIn(item.id, "_manualBrand", true); updIn(item.id, "brand", ""); updIn(item.id, "model", ""); updIn(item.id, "ref", ""); }
+                        else { updIn(item.id, "brand", e.target.value); updIn(item.id, "model", ""); updIn(item.id, "ref", ""); }
+                      }}>
+                        <option value="">Marca...</option>{BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                        <option value="__OTHER__">✏️ Otra marca...</option>
+                      </select>
+                    ) : (
+                      <div className="flex gap-1"><input className="ti flex-1" style={{ fontSize: 12, padding: "6px 10px" }} value={item.brand} placeholder="Marca manual" onChange={e => updIn(item.id, "brand", e.target.value)} /><button type="button" className="fb text-xs px-1.5 rounded" style={{ color: "var(--cd)" }} onClick={() => { updIn(item.id, "_manualBrand", false); updIn(item.id, "brand", ""); }}>↩</button></div>
+                    )}
+                    {/* Model: select or manual */}
+                    {ms.length > 0 && !item._manualModel ? (
+                      <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.model} onChange={e => {
+                        if (e.target.value === "__OTHER__") { updIn(item.id, "_manualModel", true); updIn(item.id, "model", ""); updIn(item.id, "ref", ""); }
+                        else { updIn(item.id, "model", e.target.value); updIn(item.id, "ref", ""); }
+                      }}>
+                        <option value="">Modelo...</option>{ms.map(m => <option key={m} value={m}>{m}</option>)}
+                        <option value="__OTHER__">✏️ Otro modelo...</option>
+                      </select>
+                    ) : (
+                      <div className="flex gap-1"><input className="ti flex-1" style={{ fontSize: 12, padding: "6px 10px" }} value={item.model} placeholder="Modelo" onChange={e => updIn(item.id, "model", e.target.value)} />{ms.length > 0 && <button type="button" className="fb text-xs px-1.5 rounded" style={{ color: "var(--cd)" }} onClick={() => { updIn(item.id, "_manualModel", false); updIn(item.id, "model", ""); }}>↩</button>}</div>
+                    )}
+                    {/* Ref: select or manual */}
+                    {rs.length > 0 && !item._manualRef ? (
+                      <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.ref} onChange={e => {
+                        if (e.target.value === "__OTHER__") { updIn(item.id, "_manualRef", true); updIn(item.id, "ref", ""); }
+                        else updIn(item.id, "ref", e.target.value);
+                      }}>
+                        <option value="">Ref...</option>{rs.map(r => <option key={r} value={r}>{r}</option>)}
+                        <option value="__OTHER__">✏️ Otra ref...</option>
+                      </select>
+                    ) : (
+                      <div className="flex gap-1"><input className="ti flex-1" style={{ fontSize: 12, padding: "6px 10px" }} value={item.ref} placeholder="Ref." onChange={e => updIn(item.id, "ref", e.target.value)} />{rs.length > 0 && <button type="button" className="fb text-xs px-1.5 rounded" style={{ color: "var(--cd)" }} onClick={() => { updIn(item.id, "_manualRef", false); updIn(item.id, "ref", ""); }}>↩</button>}</div>
+                    )}
                     <div className="flex gap-1"><input type="number" className="ti flex-1" style={{ fontSize: 12, padding: "6px 10px", fontWeight: 700 }} placeholder="Valor $" value={item.value || ""} onChange={e => updIn(item.id, "value", Number(e.target.value))} /><BtnD onClick={() => remIn(item.id)}>✕</BtnD></div>
                   </div>
                 </div>
@@ -978,17 +1010,46 @@ function TradeForm({ piece, allPieces, onSave, onClose }) {
         </div>
         {incoming.length === 0 && <div className="fb text-sm text-center py-4" style={{ color: "var(--cd)" }}>Agrega al menos 1 pieza</div>}
         {incoming.map(item => {
-          const ms = getModels(item.brand); const rs = getRefs(item.brand, item.model);
+          const knownBrand = BRANDS.includes(item.brand);
+          const ms = knownBrand ? getModels(item.brand) : [];
+          const knownModel = ms.includes(item.model);
+          const rs = knownBrand && knownModel ? getRefs(item.brand, item.model) : [];
           return (
             <div key={item.id} className="p-3 rounded-lg mb-2" style={{ background: "rgba(74,222,128,.06)" }}>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.brand} onChange={e => { updIn(item.id, "brand", e.target.value); updIn(item.id, "model", ""); }}>
-                  <option value="">Marca...</option>{BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
-                </select>
-                {ms.length > 0 ? <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.model} onChange={e => updIn(item.id, "model", e.target.value)}><option value="">Modelo...</option>{ms.map(m => <option key={m} value={m}>{m}</option>)}</select>
-                  : <input className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.model} placeholder="Modelo" onChange={e => updIn(item.id, "model", e.target.value)} />}
-                {rs.length > 0 ? <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.ref} onChange={e => updIn(item.id, "ref", e.target.value)}><option value="">Ref...</option>{rs.map(r => <option key={r} value={r}>{r}</option>)}</select>
-                  : <input className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.ref} placeholder="Ref." onChange={e => updIn(item.id, "ref", e.target.value)} />}
+                {!item._manualBrand ? (
+                  <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.brand} onChange={e => {
+                    if (e.target.value === "__OTHER__") { updIn(item.id, "_manualBrand", true); updIn(item.id, "brand", ""); updIn(item.id, "model", ""); updIn(item.id, "ref", ""); }
+                    else { updIn(item.id, "brand", e.target.value); updIn(item.id, "model", ""); updIn(item.id, "ref", ""); }
+                  }}>
+                    <option value="">Marca...</option>{BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                    <option value="__OTHER__">✏️ Otra marca...</option>
+                  </select>
+                ) : (
+                  <div className="flex gap-1"><input className="ti flex-1" style={{ fontSize: 12, padding: "6px 10px" }} value={item.brand} placeholder="Marca manual" onChange={e => updIn(item.id, "brand", e.target.value)} /><button type="button" className="fb text-xs px-1.5 rounded" style={{ color: "var(--cd)" }} onClick={() => { updIn(item.id, "_manualBrand", false); updIn(item.id, "brand", ""); }}>↩</button></div>
+                )}
+                {ms.length > 0 && !item._manualModel ? (
+                  <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.model} onChange={e => {
+                    if (e.target.value === "__OTHER__") { updIn(item.id, "_manualModel", true); updIn(item.id, "model", ""); updIn(item.id, "ref", ""); }
+                    else { updIn(item.id, "model", e.target.value); updIn(item.id, "ref", ""); }
+                  }}>
+                    <option value="">Modelo...</option>{ms.map(m => <option key={m} value={m}>{m}</option>)}
+                    <option value="__OTHER__">✏️ Otro modelo...</option>
+                  </select>
+                ) : (
+                  <div className="flex gap-1"><input className="ti flex-1" style={{ fontSize: 12, padding: "6px 10px" }} value={item.model} placeholder="Modelo" onChange={e => updIn(item.id, "model", e.target.value)} />{ms.length > 0 && <button type="button" className="fb text-xs px-1.5 rounded" style={{ color: "var(--cd)" }} onClick={() => { updIn(item.id, "_manualModel", false); updIn(item.id, "model", ""); }}>↩</button>}</div>
+                )}
+                {rs.length > 0 && !item._manualRef ? (
+                  <select className="ti" style={{ fontSize: 12, padding: "6px 10px" }} value={item.ref} onChange={e => {
+                    if (e.target.value === "__OTHER__") { updIn(item.id, "_manualRef", true); updIn(item.id, "ref", ""); }
+                    else updIn(item.id, "ref", e.target.value);
+                  }}>
+                    <option value="">Ref...</option>{rs.map(r => <option key={r} value={r}>{r}</option>)}
+                    <option value="__OTHER__">✏️ Otra ref...</option>
+                  </select>
+                ) : (
+                  <div className="flex gap-1"><input className="ti flex-1" style={{ fontSize: 12, padding: "6px 10px" }} value={item.ref} placeholder="Ref." onChange={e => updIn(item.id, "ref", e.target.value)} />{rs.length > 0 && <button type="button" className="fb text-xs px-1.5 rounded" style={{ color: "var(--cd)" }} onClick={() => { updIn(item.id, "_manualRef", false); updIn(item.id, "ref", ""); }}>↩</button>}</div>
+                )}
                 <div className="flex gap-1"><input type="number" className="ti flex-1" style={{ fontSize: 12, padding: "6px 10px", fontWeight: 700 }} placeholder="Valor $" value={item.value || ""} onChange={e => updIn(item.id, "value", Number(e.target.value))} /><BtnD onClick={() => remIn(item.id)}>✕</BtnD></div>
               </div>
             </div>
@@ -1305,9 +1366,11 @@ export default function App() {
         // Mark piece as traded out
         await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: "trade_out", trade_ref: trRef });
 
-        // Create incoming pieces
+        // Create incoming pieces (track created for unique SKU)
+        const created = [...(data.pieces || [])];
         for (const item of incoming) {
-          const np = { id: uid(), sku: genSku(data.pieces), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: p.xDate, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef}`, trade_ref: trRef };
+          const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: p.xDate, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef}`, trade_ref: trRef };
+          created.push(np);
           await db.savePiece(np);
         }
 
@@ -1343,8 +1406,10 @@ export default function App() {
         await db.savePiece({ id: op.id, status: "Vendido", stage: "liquidado", exit_type: "trade_out", trade_ref: trRef });
       }
       // Create incoming pieces
+      const created = [...(data.pieces || [])];
       for (const item of incoming) {
-        const np = { id: uid(), sku: genSku(data.pieces), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: date, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef}`, trade_ref: trRef };
+        const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: date, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef}`, trade_ref: trRef };
+        created.push(np);
         await db.savePiece(np);
       }
 
@@ -1427,7 +1492,7 @@ export default function App() {
               <div className="flex gap-2"><BtnP onClick={() => setModal("ap")}><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Pieza</span></BtnP><BtnS onClick={() => setModal("ac")}>Capital</BtnS></div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <St label="Total Aportación" value={fmxn(comp.cash + comp.invC)} />
+              <St label="Total Invertido" value={fmxn(comp.cash + comp.invC)} />
               <St label="Cash en Fondo" value={fmxn(comp.cash)} accent="var(--bl)" />
               <St label="Inventario (Costo)" value={fmxn(comp.invC)} accent="var(--gd)" />
               <St label="Utilidad Realizada" value={fmxn(comp.rp)} accent="var(--gn)" />
