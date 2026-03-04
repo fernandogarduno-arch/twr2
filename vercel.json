@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "installCommand": "npm install",
+  "rewrites": [
+    { "source": "/catalogo", "destination": "/index.html" }
+  ]
+}
