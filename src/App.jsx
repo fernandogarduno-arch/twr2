@@ -775,8 +775,10 @@ function TradeForm({ piece, allPieces, onSave, onClose }) {
   const avail = (allPieces || []).filter(p => p.status === "Disponible" && p.id !== piece.id);
   const [outIds, setOutIds] = useState([]);
   const [incoming, setIncoming] = useState([]);
-  const [cashDiff, setCashDiff] = useState(0);
+  const [cashOut, setCashOut] = useState(0);
+  const [cashIn, setCashIn] = useState(0);
   const [date, setDate] = useState(td());
+  const cashDiff = cashIn - cashOut;
 
   const addIn = () => setIncoming(p => [...p, { id: uid(), brand: "", model: "", ref: "", value: 0 }]);
   const updIn = (id, k, v) => setIncoming(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
@@ -832,11 +834,20 @@ function TradeForm({ piece, allPieces, onSave, onClose }) {
         {totalIn > 0 && <div className="flex justify-between pt-2 mt-2" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}><span className="fb text-xs font-bold" style={{ color: "var(--gn)" }}>Total ({incoming.length})</span><span className="fd font-bold" style={{ color: "var(--gn)" }}>{fmxn(totalIn)}</span></div>}
       </div>
 
-      {/* Cash + Date */}
-      <div className="grid grid-cols-2 gap-3">
-        <Fl label="Diferencia en efectivo" hint="+ recibimos / − pagamos"><input type="number" className="ti" value={cashDiff} onChange={e => setCashDiff(Number(e.target.value))} /></Fl>
-        <Fl label="Fecha"><input type="date" className="ti" value={date} onChange={e => setDate(e.target.value)} /></Fl>
+      {/* Cash Direction + Date */}
+      <div className="rounded-xl p-4" style={{ background: "rgba(96,165,250,.04)", border: "1px solid rgba(96,165,250,.1)" }}>
+        <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--bl)" }}>💰 Diferencia en Efectivo</div>
+        <div className="grid grid-cols-2 gap-3">
+          <Fl label="Nosotros pagamos" hint="Sale del fondo FIC"><input type="number" className="ti" value={cashOut} onChange={e => setCashOut(Number(e.target.value))} placeholder="0" /></Fl>
+          <Fl label="Nosotros recibimos" hint="Entra al fondo FIC"><input type="number" className="ti" value={cashIn} onChange={e => setCashIn(Number(e.target.value))} placeholder="0" /></Fl>
+        </div>
+        {(cashOut > 0 || cashIn > 0) && <div className="mt-2 fb text-xs p-2 rounded-lg" style={{ background: "rgba(96,165,250,.08)", color: "var(--bl)" }}>
+          {cashOut > 0 && <span>↑ {fmxn(cashOut)} sale del FIC (pagamos diferencia)</span>}
+          {cashOut > 0 && cashIn > 0 && <span> · </span>}
+          {cashIn > 0 && <span>↓ {fmxn(cashIn)} entra al FIC (recibimos diferencia)</span>}
+        </div>}
       </div>
+      <Fl label="Fecha"><input type="date" className="ti" value={date} onChange={e => setDate(e.target.value)} /></Fl>
 
       {/* Balance */}
       <div className="rounded-xl p-4 grid grid-cols-4 gap-2 text-center" style={{ background: "rgba(201,169,110,.08)" }}>
@@ -849,7 +860,7 @@ function TradeForm({ piece, allPieces, onSave, onClose }) {
       {/* Docs */}
       <DocUploader entityType="trade" entityId={piece.id} requiredDocs={["identificacion", "contrato"]} docs={[]} onUpload={() => {}} />
 
-      <div className="flex gap-3 pt-2"><BtnG onClick={() => onSave({ outPieces: allOut, incoming, cashDiff, date })} disabled={!isValid}>Registrar Trade</BtnG><BtnS onClick={onClose}>Cancelar</BtnS></div>
+      <div className="flex gap-3 pt-2"><BtnG onClick={() => onSave({ outPieces: allOut, incoming, cashDiff, cashOut, cashIn, date })} disabled={!isValid}>Registrar Trade</BtnG><BtnS onClick={onClose}>Cancelar</BtnS></div>
     </div>
   );
 }
@@ -908,10 +919,25 @@ export default function App() {
     const inv = ps.filter(p => p.status === "Disponible");
     const sold = ps.filter(p => p.status === "Vendido" || p.status === "Liquidado");
     const invC = inv.reduce((s, p) => s + (p.cost || 0), 0);
+
+    // Cash in fund = all FIC transactions summed
     let cash = 0; txs.forEach(t => { if (t.fondo_id === "FIC") cash += (t.monto || 0); });
-    const rp = sold.reduce((s, p) => { const x = txs.find(t => t.pieza_id === p.id && t.tipo === "SELL"); return x ? s + (x.monto || 0) - (p.cost || 0) : s; }, 0);
+
+    // Realized profit = only from direct SELL (not trades)
+    const rp = sold.reduce((s, p) => {
+      const sellTx = txs.find(t => t.pieza_id === p.id && t.tipo === "SELL");
+      if (!sellTx) return s;
+      return s + ((sellTx.monto || 0) - (p.cost || 0));
+    }, 0);
+
     const cap = txs.filter(t => t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
-    return { inv, sold, invC, cash, rp, cap, nav: cash + invC, moic: cap > 0 ? (cash + invC) / cap : 0 };
+    return {
+      inv, sold, invC, cash, rp, cap,
+      nav: cash + invC,
+      moic: cap > 0 ? (cash + invC) / cap : 0,
+      profFer: Math.round(rp * 0.4),
+      profSoc: Math.round(rp * 0.6),
+    };
   }, [data]);
 
   const fp = useMemo(() => {
@@ -937,26 +963,44 @@ export default function App() {
 
   const hSell = useCallback(async (p) => {
     try {
+      const cost = p.cost || 0;
+      const profit = p.xPrice - cost;
       await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: p.xType, exit_fund: p.xFund });
-      await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, descripcion: `Venta ${p.name} → ${FUND_INFO[p.xFund]?.short}`, metodo_pago: p.payOut });
-      showToast(`Venta registrada: ${p.name}`);
+      // Record sale (revenue enters fund)
+      await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, descripcion: `Venta ${p.name} → ${FUND_INFO[p.xFund]?.short} (Costo: ${fmxn(cost)}, Utilidad: ${fmxn(profit)})`, metodo_pago: p.payOut });
+      showToast(`Venta registrada: ${p.name} — Utilidad: ${fmxn(profit)}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm]);
 
   const hTrade = useCallback(async (td_) => {
     try {
-      const { outPieces, incoming, cashDiff, date } = td_;
+      const { outPieces, incoming, cashOut, cashIn, date } = td_;
       const trRef = "TR-" + Date.now().toString(36).slice(-5).toUpperCase();
+      const fondo = outPieces[0].fondo_id || "FIC";
 
+      // Mark outgoing pieces as traded out
       for (const op of outPieces) {
         await db.savePiece({ id: op.id, status: "Vendido", stage: "liquidado", exit_type: "trade_out", trade_ref: trRef });
       }
+      // Create incoming pieces
       for (const item of incoming) {
-        const np = { id: uid(), sku: genSku(data.pieces), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: outPieces[0].fondo_id, entry_type: "trade_in", entry_date: date, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef}`, trade_ref: trRef };
+        const np = { id: uid(), sku: genSku(data.pieces), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: date, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef}`, trade_ref: trRef };
         await db.savePiece(np);
       }
-      await db.saveTx({ id: uid(), fecha: date, tipo: "TRADE", pieza_id: outPieces[0].id, monto: cashDiff, fondo_id: outPieces[0].fondo_id, descripcion: `Trade ${trRef}: ${outPieces.map(p => p.name).join(" + ")} → ${incoming.map(i => [i.brand, i.model].filter(Boolean).join(" ")).join(" + ")}`, metodo_pago: cashDiff !== 0 ? "Trade+Cash" : "Trade", trade_ref: trRef });
+
+      // Register trade transaction (no profit — just a swap)
+      const desc = `Trade ${trRef}: ${outPieces.map(p => p.name).join(" + ")} → ${incoming.map(i => [i.brand, i.model].filter(Boolean).join(" ")).join(" + ")}`;
+      await db.saveTx({ id: uid(), fecha: date, tipo: "TRADE", pieza_id: outPieces[0].id, monto: 0, fondo_id: fondo, descripcion: desc, metodo_pago: "Trade", trade_ref: trRef });
+
+      // Cash OUT from FIC (we paid difference)
+      if (cashOut > 0) {
+        await db.saveTx({ id: uid(), fecha: date, tipo: "TRADE", pieza_id: outPieces[0].id, monto: -(cashOut), fondo_id: fondo, descripcion: `${trRef} — Diferencia pagada (sale del fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
+      }
+      // Cash IN to FIC (we received difference)
+      if (cashIn > 0) {
+        await db.saveTx({ id: uid(), fecha: date, tipo: "TRADE", pieza_id: outPieces[0].id, monto: cashIn, fondo_id: fondo, descripcion: `${trRef} — Diferencia recibida (entra al fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
+      }
 
       showToast(`Trade ${trRef} registrado`);
       await refresh(); cm();
@@ -1026,9 +1070,28 @@ export default function App() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <St label="Capital" value={fmxn(comp.cap)} />
               <St label="NAV" value={fmxn(comp.nav)} accent="var(--bl)" />
-              <St label="Utilidad" value={fmxn(comp.rp)} accent="var(--gn)" />
+              <St label="Utilidad Realizada" value={fmxn(comp.rp)} accent="var(--gn)" />
               <St label="MOIC" value={`${(comp.moic || 0).toFixed(2)}x`} accent="var(--pr)" />
             </div>
+            {comp.rp !== 0 && (
+              <div className="rounded-xl p-4" style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.1)" }}>
+                <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gn)" }}>Distribución de Utilidad (solo ventas directas)</div>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-xl p-3" style={{ background: "rgba(74,222,128,.06)" }}>
+                    <div className="fb text-xs" style={{ color: "#4ADE80" }}>Fernando 40%</div>
+                    <div className="fd font-bold text-lg text-white">{fmxn(comp.profFer)}</div>
+                  </div>
+                  <div className="rounded-xl p-3" style={{ background: "rgba(96,165,250,.06)" }}>
+                    <div className="fb text-xs" style={{ color: "#60A5FA" }}>TWR (Socios) 60%</div>
+                    <div className="fd font-bold text-lg text-white">{fmxn(comp.profSoc)}</div>
+                  </div>
+                  <div className="rounded-xl p-3" style={{ background: "rgba(201,169,110,.06)" }}>
+                    <div className="fb text-xs" style={{ color: "var(--gd)" }}>Total</div>
+                    <div className="fd font-bold text-lg" style={{ color: comp.rp >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(comp.rp)}</div>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {FUNDS.map(fk => <Cd key={fk} className="p-4"><div className="flex items-center gap-2 mb-1"><span>{FUND_INFO[fk].icon}</span><span className="fb font-semibold text-sm text-white">{FUND_INFO[fk].full}</span></div><div className="fb text-xs" style={{ color: "var(--cd)" }}>{FUND_INFO[fk].desc}</div></Cd>)}
             </div>
@@ -1154,6 +1217,65 @@ export default function App() {
         {page === "settings" && (
           <div className="space-y-5 au">
             <h1 className="fd text-2xl md:text-3xl font-bold text-white">Configuración</h1>
+
+            {/* SOCIOS ADMIN */}
+            <Cd className="p-5">
+              <h3 className="fd font-semibold text-white mb-4">👥 Socios / Capitalistas</h3>
+              <div className="space-y-3">
+                {(data.pieces ? PARTNERS : []).map(p => (
+                  <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+                    <span className="fb text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: `${p.color}22`, color: p.color }}>{p.pct}%</span>
+                    <input className="ti flex-1" defaultValue={p.name} id={`socio-name-${p.id}`} />
+                    <BtnS onClick={async () => {
+                      const newName = document.getElementById(`socio-name-${p.id}`)?.value;
+                      if (!newName) return;
+                      try {
+                        await sb.from("socios").update({ name: newName }).eq("id", p.id);
+                        showToast(`Socio "${newName}" actualizado`);
+                        await refresh();
+                      } catch (e) { alert("Error: " + e.message); }
+                    }}>Guardar</BtnS>
+                  </div>
+                ))}
+              </div>
+            </Cd>
+
+            {/* CREATE USER */}
+            <Cd className="p-5">
+              <h3 className="fd font-semibold text-white mb-4">🔑 Crear Usuario</h3>
+              <div className="fb text-xs mb-3" style={{ color: "var(--cd)" }}>
+                El usuario recibirá un correo para confirmar. Asigna rol después de crear.
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Fl label="Email"><input className="ti" id="new-user-email" placeholder="correo@ejemplo.com" /></Fl>
+                <Fl label="Contraseña temporal"><input className="ti" type="password" id="new-user-pass" placeholder="Mínimo 6 caracteres" /></Fl>
+                <Fl label="Nombre"><input className="ti" id="new-user-name" placeholder="Nombre completo" /></Fl>
+              </div>
+              <div className="flex gap-3 mt-3">
+                <BtnP onClick={async () => {
+                  const email = document.getElementById("new-user-email")?.value;
+                  const pass = document.getElementById("new-user-pass")?.value;
+                  const name = document.getElementById("new-user-name")?.value;
+                  if (!email || !pass) return alert("Email y contraseña son obligatorios");
+                  if (pass.length < 6) return alert("La contraseña debe tener al menos 6 caracteres");
+                  try {
+                    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY },
+                      body: JSON.stringify({ email, password: pass, name: name || email }),
+                    });
+                    const result = await res.json();
+                    if (result.error) throw new Error(result.error);
+                    showToast(`Usuario ${email} creado`);
+                    document.getElementById("new-user-email").value = "";
+                    document.getElementById("new-user-pass").value = "";
+                    document.getElementById("new-user-name").value = "";
+                  } catch (e) { alert("Error: " + e.message); }
+                }}>Crear Usuario</BtnP>
+              </div>
+            </Cd>
+
+            {/* WHATSAPP */}
             <Cd className="p-5">
               <h3 className="fd font-semibold text-white mb-4">WhatsApp del Catálogo</h3>
               <Fl label="Número (con código de país, ej: 5219991234567)" hint="Se usa para el botón de contacto en el catálogo público">
