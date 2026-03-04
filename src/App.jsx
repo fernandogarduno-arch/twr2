@@ -1262,8 +1262,8 @@ function SettingsPage({ data, showToast, refresh, currentUser }) {
                 }}>Guardar</BtnP>}
                 {!changed && <div className="fb text-xs px-2" style={{ color: "var(--cd)", minWidth: 60 }}>{p.role}</div>}
                 <button onClick={async () => {
-                  if (p.email === user?.email) return alert("No puedes eliminarte a ti mismo");
-                  if (!confirm(`¿Eliminar usuario ${p.name} (${p.email})?`)) return;
+                  if (p.id === currentUser?.id) return alert("No puedes eliminarte a ti mismo");
+                  if (!confirm(`¿Eliminar usuario ${p.name} (${p.email})?\n\nEsta acción solo elimina el perfil de la app, no la cuenta de autenticación.`)) return;
                   try { await db.delProfile(p.id); showToast(`${p.name} eliminado`); await refresh(); } catch(e) { alert("Error: " + e.message); }
                 }} className="fb text-xs px-2 py-1 rounded" style={{ color: "var(--rd)" }} title="Eliminar usuario">🗑</button>
               </div>
@@ -1760,16 +1760,24 @@ export default function App() {
         try {
           const { _sells, ...corteData } = c;
           await db.saveCorte(corteData);
-          // If retirar, create withdrawal transactions for each socio
-          if (c.decision === "retirar" && c.utilidad > 0) {
+          const fondo = c.fondo_id || "FIC";
+
+          if (c.utilidad > 0) {
             for (const s of (data.socios || [])) {
               const share = c.splits?.[s.id] || 0;
-              if (share > 0) {
-                await db.saveTx({ id: uid(), fecha: td(), tipo: "RETIRO", pieza_id: null, monto: -(share), fondo_id: c.fondo_id || "FIC", descripcion: `Retiro utilidades ${c.periodo} — ${s.name} (${s.participacion}%)`, metodo_pago: "Retiro" });
+              if (share <= 0) continue;
+
+              if (c.decision === "retirar") {
+                // Retirar: profit leaves the fund
+                await db.saveTx({ id: uid(), fecha: td(), tipo: "RETIRO", pieza_id: null, monto: -(share), fondo_id: fondo, descripcion: `Retiro utilidades ${c.periodo} — ${s.name} (${s.participacion}%)`, metodo_pago: "Retiro", partner_id: s.id });
+              } else {
+                // Reinvertir: withdraw profit then reinsert as new capital
+                await db.saveTx({ id: uid(), fecha: td(), tipo: "RETIRO", pieza_id: null, monto: -(share), fondo_id: fondo, descripcion: `Corte ${c.periodo} — Retiro utilidad ${s.name} (${s.participacion}%)`, metodo_pago: "Reinversión", partner_id: s.id });
+                await db.saveTx({ id: uid(), fecha: td(), tipo: "CAPITAL", pieza_id: null, monto: share, fondo_id: fondo, descripcion: `Corte ${c.periodo} — Reinversión utilidad ${s.name} (${s.participacion}%)`, metodo_pago: "Reinversión", partner_id: s.id });
               }
             }
           }
-          showToast(c.decision === "retirar" ? "Corte cerrado — retiros generados" : "Corte cerrado — utilidades reinvertidas");
+          showToast(c.decision === "retirar" ? "Corte cerrado — retiros generados" : "Corte cerrado — utilidades reinvertidas como capital");
           await refresh(); cm();
         } catch (e) { alert(e.message); }
       } } onClose={cm} socios={data.socios} pieces={data.pieces} txs={data.txs} cortes={data.cortes} />}</Md>
@@ -2006,11 +2014,11 @@ function CorteForm({ onSave, onClose, socios, pieces, txs, cortes }) {
     {totalProfit > 0 && !exists && (<div className="grid grid-cols-2 gap-3">
       <button type="button" onClick={() => onSave({ id: "C-" + uid().slice(0, 5), periodo: period, label: label || `Corte ${period}`, utilidad: totalProfit, splits, decision: "reinvertir", fondo_id: "FIC" })} className="fb p-4 rounded-xl text-center font-semibold transition-all hover:brightness-110" style={{ background: "rgba(96,165,250,.12)", border: "1px solid rgba(96,165,250,.2)", color: "var(--bl)" }}>
         <div className="text-2xl mb-1">🔄</div><div>Reinvertir</div>
-        <div className="text-xs font-normal mt-1" style={{ color: "var(--cd)" }}>Utilidad se queda en el fondo</div>
+        <div className="text-xs font-normal mt-1" style={{ color: "var(--cd)" }}>Se retira y se reinyecta como capital. La base de inversión crece.</div>
       </button>
       <button type="button" onClick={() => onSave({ id: "C-" + uid().slice(0, 5), periodo: period, label: label || `Corte ${period}`, utilidad: totalProfit, splits, decision: "retirar", fondo_id: "FIC" })} className="fb p-4 rounded-xl text-center font-semibold transition-all hover:brightness-110" style={{ background: "rgba(74,222,128,.12)", border: "1px solid rgba(74,222,128,.2)", color: "var(--gn)" }}>
         <div className="text-2xl mb-1">💰</div><div>Retirar Utilidades</div>
-        <div className="text-xs font-normal mt-1" style={{ color: "var(--cd)" }}>Se generan retiros para cada socio</div>
+        <div className="text-xs font-normal mt-1" style={{ color: "var(--cd)" }}>La utilidad sale del fondo. Cada socio recibe su parte.</div>
       </button>
     </div>)}
 
