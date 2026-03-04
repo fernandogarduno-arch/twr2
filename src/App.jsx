@@ -47,7 +47,7 @@ const stor = {
 /* ═══ DB LAYER ═══ */
 const db = {
   async loadAll() {
-    const [pz, tx, ct, fo, cl, su, st, cr, sc] = await Promise.all([
+    const [pz, tx, ct, fo, cl, su, st, cr, sc, pr] = await Promise.all([
       sb.from("piezas").select("*").order("created_at", { ascending: false }),
       sb.from("transacciones").select("*").order("fecha", { ascending: false }),
       sb.from("cortes").select("*").order("periodo", { ascending: false }),
@@ -57,6 +57,7 @@ const db = {
       sb.from("app_settings").select("*"),
       sb.from("custom_referencias").select("*"),
       sb.from("socios").select("*").order("participacion", { ascending: false }),
+      sb.from("profiles").select("*").order("name"),
     ]);
     return {
       pieces: pz.data || [], txs: tx.data || [], cortes: ct.data || [],
@@ -64,6 +65,7 @@ const db = {
       settings: Object.fromEntries((st.data || []).map(s => [s.key, s.value])),
       customRefs: cr.data || [],
       socios: sc.data || [],
+      profiles: pr.data || [],
     };
   },
   async loadDocs(entType, entId) {
@@ -224,6 +226,9 @@ function PhotoUploader({ pieceId, fotos, onUpload, onDelete, isNew }) {
         const pending = { id: uid(), pieza_id: pieceId, posicion: pos, url, storage_path: storagePath, _pending: true };
         if (onUpload) onUpload(pending);
       } else {
+        // Verify piece exists before inserting foto
+        const { data: exists } = await sb.from("piezas").select("id").eq("id", pieceId).single();
+        if (!exists) { alert("Error: la pieza no existe en la base de datos. Recarga la página."); setUploading(null); return; }
         const saved = await db.saveFoto({ pieza_id: pieceId, posicion: pos, url, storage_path: storagePath });
         if (onUpload) onUpload(saved);
       }
@@ -919,12 +924,17 @@ function TradeForm({ piece, allPieces, onSave, onClose }) {
 }
 
 /* ═══ SETTINGS PAGE (with proper React state) ═══ */
-function SettingsPage({ data, showToast, refresh }) {
+function SettingsPage({ data, showToast, refresh, currentUser }) {
   const socios = data?.socios || [];
+  const profiles = data?.profiles || [];
+  const myProfile = profiles.find(p => p.id === currentUser?.id);
+  const isSuperuser = myProfile?.role === "superuser";
   const [socioNames, setSocioNames] = useState(Object.fromEntries(socios.map(s => [s.id, s.name])));
   const [waNum, setWaNum] = useState((data?.settings?.whatsapp_number || "").replace(/"/g, ""));
   const [newUser, setNewUser] = useState({ email: "", pass: "", name: "" });
   const [creating, setCreating] = useState(false);
+  const [profileEdits, setProfileEdits] = useState(Object.fromEntries(profiles.map(p => [p.id, { name: p.name || "", role: p.role || "operador" }])));
+  const ROLES = ["superuser", "director", "operador", "inversionista"];
 
   return (
     <div className="space-y-5 au">
@@ -948,15 +958,44 @@ function SettingsPage({ data, showToast, refresh }) {
             </div>
           ))}
         </div>
-        {socios.length === 0 && <div className="fb text-sm py-4 text-center" style={{ color: "var(--cd)" }}>No hay socios en la tabla. Ejecuta el seed SQL.</div>}
+        {socios.length === 0 && <div className="fb text-sm py-4 text-center" style={{ color: "var(--cd)" }}>No hay socios en la tabla.</div>}
       </Cd>
 
-      {/* CREATE USER */}
-      <Cd className="p-5">
-        <h3 className="fd font-semibold text-white mb-4">🔑 Crear Usuario</h3>
-        <div className="fb text-xs mb-3" style={{ color: "var(--cd)" }}>
-          El usuario se crea activo inmediatamente con rol "operador". Puede iniciar sesión de inmediato.
+      {/* EXISTING USERS — only superuser */}
+      {isSuperuser && <Cd className="p-5">
+        <h3 className="fd font-semibold text-white mb-4">👤 Usuarios Registrados ({profiles.length})</h3>
+        <div className="space-y-2">
+          {profiles.map(p => {
+            const ed = profileEdits[p.id] || { name: p.name, role: p.role };
+            const changed = ed.name !== p.name || ed.role !== p.role;
+            return (
+              <div key={p.id} className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: changed ? "1px solid rgba(201,169,110,.3)" : "1px solid rgba(255,255,255,.06)" }}>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 fb text-xs font-bold" style={{ background: p.active ? "rgba(74,222,128,.15)" : "rgba(251,113,133,.15)", color: p.active ? "var(--gn)" : "var(--rd)" }}>
+                  {(ed.name || "?")[0].toUpperCase()}
+                </div>
+                <input className="ti flex-1" style={{ fontSize: 13 }} value={ed.name} placeholder="Nombre"
+                  onChange={e => setProfileEdits(prev => ({ ...prev, [p.id]: { ...prev[p.id], name: e.target.value } }))} />
+                <select className="ti" style={{ fontSize: 12, width: 130, padding: "6px 8px" }} value={ed.role}
+                  onChange={e => setProfileEdits(prev => ({ ...prev, [p.id]: { ...prev[p.id], role: e.target.value } }))}>
+                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+                {changed && <BtnP onClick={async () => {
+                  try {
+                    await sb.from("profiles").update({ name: ed.name, role: ed.role }).eq("id", p.id);
+                    showToast(`${ed.name} actualizado`);
+                    await refresh();
+                  } catch (e) { alert("Error: " + e.message); }
+                }}>Guardar</BtnP>}
+                {!changed && <div className="fb text-xs px-2" style={{ color: "var(--cd)", minWidth: 60 }}>{p.role}</div>}
+              </div>
+            );
+          })}
         </div>
+      </Cd>}
+
+      {/* CREATE NEW USER — only superuser */}
+      {isSuperuser && <Cd className="p-5">
+        <h3 className="fd font-semibold text-white mb-4">➕ Crear Nuevo Usuario</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Fl label="Email"><input className="ti" value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} placeholder="correo@ejemplo.com" /></Fl>
           <Fl label="Contraseña"><input className="ti" type="password" value={newUser.pass} onChange={e => setNewUser(p => ({ ...p, pass: e.target.value }))} placeholder="Mínimo 6 caracteres" /></Fl>
@@ -966,6 +1005,7 @@ function SettingsPage({ data, showToast, refresh }) {
           <BtnP onClick={async () => {
             if (!newUser.email || !newUser.pass) return alert("Email y contraseña son obligatorios");
             if (newUser.pass.length < 6) return alert("Mínimo 6 caracteres");
+            if (profiles.some(p => p.name === newUser.email || profileEdits[p.id]?.name === newUser.email)) return alert("Ese email ya tiene cuenta.");
             setCreating(true);
             try {
               const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`, {
@@ -977,11 +1017,12 @@ function SettingsPage({ data, showToast, refresh }) {
               if (result.error) throw new Error(result.error);
               showToast(`Usuario ${newUser.email} creado`);
               setNewUser({ email: "", pass: "", name: "" });
+              await refresh();
             } catch (e) { alert("Error: " + e.message); }
             setCreating(false);
           }} disabled={creating}>{creating ? "Creando..." : "Crear Usuario"}</BtnP>
         </div>
-      </Cd>
+      </Cd>}
 
       {/* WHATSAPP */}
       <Cd className="p-5">
@@ -1396,7 +1437,7 @@ export default function App() {
         )}
 
         {/* ═══ SETTINGS ═══ */}
-        {page === "settings" && <SettingsPage data={data} showToast={showToast} refresh={refresh} />}
+        {page === "settings" && <SettingsPage data={data} showToast={showToast} refresh={refresh} currentUser={user} />}
 
       </div></main>
 
