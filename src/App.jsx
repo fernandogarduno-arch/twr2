@@ -47,7 +47,7 @@ const stor = {
 /* ═══ DB LAYER ═══ */
 const db = {
   async loadAll() {
-    const [pz, tx, ct, fo, cl, su, st, cr] = await Promise.all([
+    const [pz, tx, ct, fo, cl, su, st, cr, sc] = await Promise.all([
       sb.from("piezas").select("*").order("created_at", { ascending: false }),
       sb.from("transacciones").select("*").order("fecha", { ascending: false }),
       sb.from("cortes").select("*").order("periodo", { ascending: false }),
@@ -56,12 +56,14 @@ const db = {
       sb.from("proveedores").select("*"),
       sb.from("app_settings").select("*"),
       sb.from("custom_referencias").select("*"),
+      sb.from("socios").select("*").order("participacion", { ascending: false }),
     ]);
     return {
       pieces: pz.data || [], txs: tx.data || [], cortes: ct.data || [],
       fotos: fo.data || [], clients: cl.data || [], suppliers: su.data || [],
       settings: Object.fromEntries((st.data || []).map(s => [s.key, s.value])),
       customRefs: cr.data || [],
+      socios: sc.data || [],
     };
   },
   async loadDocs(entType, entId) {
@@ -113,16 +115,14 @@ const PAYS = ["SPEI","Efectivo MXN","Efectivo USD","Wire USD","Trade","Trade+Cas
 const ETYPES = [{v:"adquisicion",l:"Adquisición"},{v:"trade_in",l:"Trade-in"},{v:"consignacion",l:"Consignación"}];
 const XTYPES = [{v:"venta",l:"Venta"},{v:"trade_out",l:"Trade-out"},{v:"retorno_consignacion",l:"Retorno consignación"}];
 const FUND_INFO = {
-  FIC: { short:"Fondo de Inversión", full:"Fondo de Inversión Compartida", desc:"Fondo común. Fernando 40% · Socio A 30% · Socio B 30%.", icon:"🏦" },
+  FIC: { short:"Fondo de Inversión", full:"Fondo de Inversión Compartida", desc:"Fondo común. Utilidades se reparten según participación de socios.", icon:"🏦" },
   FP1: { short:"Fondo Personal 1", full:"Fondo Personal 1 — Fernando", desc:"Operaciones independientes de Fernando. 100% utilidad.", icon:"👤" },
   FP2: { short:"Fondo Personal 2", full:"Fondo Personal 2 — La Sociedad", desc:"Operaciones de La Sociedad. 50/50 socios.", icon:"👥" },
   NA:  { short:"Nueva Aportación", full:"Nueva Aportación de Capital", desc:"Dinero nuevo. Se registra como capital y la pieza entra al FIC.", icon:"💰" },
 };
 const FUNDS = Object.keys(FUND_INFO);
 const FUNDS_REAL = FUNDS.filter(f => f !== "NA"); // Fondos reales (sin Nueva Aportación)
-const PARTNERS = [{id:"fernando",name:"Fernando Cervantes",short:"Fernando",role:"DPM · Socio Operador",pct:40,color:"#4ADE80"},{id:"socioA",name:"Socio A",short:"Socio A",role:"La Sociedad",pct:30,color:"#60A5FA"},{id:"socioB",name:"Socio B (Externo)",short:"Socio B",role:"Socio Capitalista",pct:30,color:"#C084FC"}];
-const PM = Object.fromEntries(PARTNERS.map(p => [p.id, p]));
-const pSplit = (t) => PARTNERS.map(p => ({ ...p, share: Math.round(t * (p.pct / 100)) }));
+// Socios loaded from DB (data.socios) — no more hardcoded partners
 
 const PHOTO_POSITIONS = [
   { id: "dial", label: "Carátula / Dial", icon: "⌚" },
@@ -758,7 +758,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
 }
 
 /* ═══ SELL FORM ═══ */
-function SellForm({ piece, onSave, onClose, docs }) {
+function SellForm({ piece, onSave, onClose, docs, socios }) {
   const [f, sF] = useState({ xPrice: piece.price_asked || 0, xDate: td(), cDate: td(), payOut: "SPEI", xType: "venta", xFund: "FIC" });
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const c = piece.cost || 0;
@@ -794,9 +794,9 @@ function SellForm({ piece, onSave, onClose, docs }) {
       {/* Profit preview */}
       {f.xPrice > 0 && (
         <div className="rounded-xl p-4" style={{ background: pr >= 0 ? "rgba(74,222,128,.06)" : "rgba(251,113,133,.06)", border: pr >= 0 ? "1px solid rgba(74,222,128,.15)" : "1px solid rgba(251,113,133,.15)" }}>
-          <div className="grid grid-cols-4 gap-3 text-center">
+          <div className={`grid gap-3 text-center`} style={{ gridTemplateColumns: `repeat(${(socios?.length || 0) + 1}, 1fr)` }}>
             <div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad</span><br /><span className="fd font-bold text-lg" style={{ color: pr >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(pr)}</span></div>
-            {PARTNERS.map(p => <div key={p.id}><span className="fb text-xs" style={{ color: p.color }}>{p.short} {p.pct}%</span><br /><span className="fd font-bold text-white">{fmxn(Math.round(pr * (p.pct / 100)))}</span></div>)}
+            {(socios || []).map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name} {s.participacion}%</span><br /><span className="fd font-bold text-white">{fmxn(Math.round(pr * (Number(s.participacion) / 100)))}</span></div>)}
           </div>
         </div>
       )}
@@ -907,6 +907,112 @@ function TradeForm({ piece, allPieces, onSave, onClose }) {
   );
 }
 
+/* ═══ SETTINGS PAGE (with proper React state) ═══ */
+function SettingsPage({ data, showToast, refresh }) {
+  const socios = data?.socios || [];
+  const [socioNames, setSocioNames] = useState(Object.fromEntries(socios.map(s => [s.id, s.name])));
+  const [waNum, setWaNum] = useState((data?.settings?.whatsapp_number || "").replace(/"/g, ""));
+  const [newUser, setNewUser] = useState({ email: "", pass: "", name: "" });
+  const [creating, setCreating] = useState(false);
+
+  return (
+    <div className="space-y-5 au">
+      <h1 className="fd text-2xl md:text-3xl font-bold text-white">Configuración</h1>
+
+      {/* SOCIOS */}
+      <Cd className="p-5">
+        <h3 className="fd font-semibold text-white mb-4">👥 Socios / Capitalistas</h3>
+        <div className="space-y-3">
+          {socios.map(s => (
+            <div key={s.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+              <span className="fb text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: `${s.color}22`, color: s.color }}>{s.participacion}%</span>
+              <input className="ti flex-1" value={socioNames[s.id] || ""} onChange={e => setSocioNames(p => ({ ...p, [s.id]: e.target.value }))} />
+              <BtnS onClick={async () => {
+                try {
+                  await sb.from("socios").update({ name: socioNames[s.id] }).eq("id", s.id);
+                  showToast(`"${socioNames[s.id]}" actualizado`);
+                  await refresh();
+                } catch (e) { alert("Error: " + e.message); }
+              }}>Guardar</BtnS>
+            </div>
+          ))}
+        </div>
+        {socios.length === 0 && <div className="fb text-sm py-4 text-center" style={{ color: "var(--cd)" }}>No hay socios en la tabla. Ejecuta el seed SQL.</div>}
+      </Cd>
+
+      {/* CREATE USER */}
+      <Cd className="p-5">
+        <h3 className="fd font-semibold text-white mb-4">🔑 Crear Usuario</h3>
+        <div className="fb text-xs mb-3" style={{ color: "var(--cd)" }}>
+          El usuario se crea activo inmediatamente con rol "operador". Puede iniciar sesión de inmediato.
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Fl label="Email"><input className="ti" value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} placeholder="correo@ejemplo.com" /></Fl>
+          <Fl label="Contraseña"><input className="ti" type="password" value={newUser.pass} onChange={e => setNewUser(p => ({ ...p, pass: e.target.value }))} placeholder="Mínimo 6 caracteres" /></Fl>
+          <Fl label="Nombre"><input className="ti" value={newUser.name} onChange={e => setNewUser(p => ({ ...p, name: e.target.value }))} placeholder="Nombre completo" /></Fl>
+        </div>
+        <div className="flex gap-3 mt-3">
+          <BtnP onClick={async () => {
+            if (!newUser.email || !newUser.pass) return alert("Email y contraseña son obligatorios");
+            if (newUser.pass.length < 6) return alert("Mínimo 6 caracteres");
+            setCreating(true);
+            try {
+              const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY },
+                body: JSON.stringify({ email: newUser.email, password: newUser.pass, name: newUser.name || newUser.email }),
+              });
+              const result = await res.json();
+              if (result.error) throw new Error(result.error);
+              showToast(`Usuario ${newUser.email} creado`);
+              setNewUser({ email: "", pass: "", name: "" });
+            } catch (e) { alert("Error: " + e.message); }
+            setCreating(false);
+          }} disabled={creating}>{creating ? "Creando..." : "Crear Usuario"}</BtnP>
+        </div>
+      </Cd>
+
+      {/* WHATSAPP */}
+      <Cd className="p-5">
+        <h3 className="fd font-semibold text-white mb-4">WhatsApp del Catálogo</h3>
+        <Fl label="Número (con código de país, ej: 5219991234567)" hint="Se usa para el botón de contacto en el catálogo público">
+          <div className="flex gap-2">
+            <input className="ti flex-1" value={waNum} onChange={e => setWaNum(e.target.value)} placeholder="5219991234567" />
+            <BtnP onClick={async () => {
+              if (!waNum) return;
+              try {
+                await db.saveSetting("whatsapp_number", JSON.stringify(waNum));
+                showToast("WhatsApp actualizado");
+                await refresh();
+              } catch (e) { alert("Error: " + e.message); }
+            }}>Guardar</BtnP>
+          </div>
+        </Fl>
+      </Cd>
+
+      {/* DOCS */}
+      <Cd className="p-5">
+        <h3 className="fd font-semibold text-white mb-4">Documentos Obligatorios</h3>
+        <div className="fb text-sm" style={{ color: "var(--cd)" }}>
+          Los documentos marcados como obligatorios se resaltan en rojo cuando no están subidos.
+          Configura los requerimientos en la tabla <code>app_settings</code> → key: <code>required_docs</code>.
+        </div>
+      </Cd>
+
+      {/* CATALOG URL */}
+      <Cd className="p-5">
+        <h3 className="fd font-semibold text-white mb-3">Catálogo Público</h3>
+        <div className="fb text-sm" style={{ color: "var(--cd)" }}>
+          URL: <a href="?catalog" target="_blank" className="hover:underline" style={{ color: "var(--gd)" }}>{window.location.origin}?catalog</a>
+        </div>
+        <div className="fb text-sm mt-2" style={{ color: "var(--cd)" }}>
+          Para publicar una pieza, edítala y activa "Publicar en catálogo público".
+        </div>
+      </Cd>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    MAIN APPLICATION
    ═══════════════════════════════════════════════════════════════════ */
@@ -973,12 +1079,13 @@ export default function App() {
     }, 0);
 
     const cap = txs.filter(t => t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
+    const socios = data.socios || [];
     return {
       inv, sold, invC, cash, rp, cap,
       nav: cash + invC,
       moic: cap > 0 ? (cash + invC) / cap : 0,
-      profFer: Math.round(rp * 0.4),
-      profSoc: Math.round(rp * 0.6),
+      socios,
+      splits: socios.map(s => ({ ...s, share: Math.round(rp * (Number(s.participacion) / 100)) })),
     };
   }, [data]);
 
@@ -1133,15 +1240,13 @@ export default function App() {
             {comp.rp !== 0 && (
               <div className="rounded-xl p-4" style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.1)" }}>
                 <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gn)" }}>Distribución de Utilidad (solo ventas directas)</div>
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <div className="rounded-xl p-3" style={{ background: "rgba(74,222,128,.06)" }}>
-                    <div className="fb text-xs" style={{ color: "#4ADE80" }}>Fernando 40%</div>
-                    <div className="fd font-bold text-lg text-white">{fmxn(comp.profFer)}</div>
-                  </div>
-                  <div className="rounded-xl p-3" style={{ background: "rgba(96,165,250,.06)" }}>
-                    <div className="fb text-xs" style={{ color: "#60A5FA" }}>TWR (Socios) 60%</div>
-                    <div className="fd font-bold text-lg text-white">{fmxn(comp.profSoc)}</div>
-                  </div>
+                <div className={`grid gap-3 text-center`} style={{ gridTemplateColumns: `repeat(${(comp.splits?.length || 0) + 1}, 1fr)` }}>
+                  {(comp.splits || []).map(s => (
+                    <div key={s.id} className="rounded-xl p-3" style={{ background: `${s.color}11` }}>
+                      <div className="fb text-xs" style={{ color: s.color }}>{s.name} {s.participacion}%</div>
+                      <div className="fd font-bold text-lg text-white">{fmxn(s.share)}</div>
+                    </div>
+                  ))}
                   <div className="rounded-xl p-3" style={{ background: "rgba(201,169,110,.06)" }}>
                     <div className="fb text-xs" style={{ color: "var(--gd)" }}>Total</div>
                     <div className="fd font-bold text-lg" style={{ color: comp.rp >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(comp.rp)}</div>
@@ -1220,7 +1325,7 @@ export default function App() {
         {page === "cortes" && (
           <div className="space-y-5 au">
             <div className="flex items-center justify-between"><h1 className="fd text-2xl md:text-3xl font-bold text-white">Cortes Mensuales</h1><BtnP onClick={() => setModal("ct")}>+ Corte</BtnP></div>
-            <div className="space-y-3">{(data.cortes || []).map(c => <Cd key={c.id} className="p-4"><div className="flex items-center gap-3 mb-2"><span className="fb text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>{c.id}</span><span className="fd font-semibold text-white">{c.periodo}</span><span className="fb text-sm" style={{ color: "var(--cd)" }}>{c.label}</span></div>{c.utilidad > 0 && <div className="grid grid-cols-4 gap-3 text-center py-2 rounded-xl" style={{ background: "rgba(255,255,255,.03)" }}><div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad</span><div className="fd font-bold" style={{ color: "var(--gn)" }}>{fmxn(c.utilidad)}</div></div>{PARTNERS.map(p => <div key={p.id}><span className="fb text-xs" style={{ color: p.color }}>{p.short}</span><div className="fd font-bold text-white">{fmxn(c.splits?.[p.id] || 0)}</div></div>)}</div>}</Cd>)}</div>
+            <div className="space-y-3">{(data.cortes || []).map(c => <Cd key={c.id} className="p-4"><div className="flex items-center gap-3 mb-2"><span className="fb text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>{c.id}</span><span className="fd font-semibold text-white">{c.periodo}</span><span className="fb text-sm" style={{ color: "var(--cd)" }}>{c.label}</span></div>{c.utilidad > 0 && <div className={`grid gap-3 text-center py-2 rounded-xl`} style={{ background: "rgba(255,255,255,.03)", gridTemplateColumns: `repeat(${(data.socios?.length || 0) + 1}, 1fr)` }}><div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad</span><div className="fd font-bold" style={{ color: "var(--gn)" }}>{fmxn(c.utilidad)}</div></div>{(data.socios || []).map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name}</span><div className="fd font-bold text-white">{fmxn(c.splits?.[s.id] || 0)}</div></div>)}</div>}</Cd>)}</div>
           </div>
         )}
 
@@ -1271,95 +1376,7 @@ export default function App() {
         )}
 
         {/* ═══ SETTINGS ═══ */}
-        {page === "settings" && (
-          <div className="space-y-5 au">
-            <h1 className="fd text-2xl md:text-3xl font-bold text-white">Configuración</h1>
-
-            {/* SOCIOS ADMIN */}
-            <Cd className="p-5">
-              <h3 className="fd font-semibold text-white mb-4">👥 Socios / Capitalistas</h3>
-              <div className="space-y-3">
-                {(data.pieces ? PARTNERS : []).map(p => (
-                  <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
-                    <span className="fb text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: `${p.color}22`, color: p.color }}>{p.pct}%</span>
-                    <input className="ti flex-1" defaultValue={p.name} id={`socio-name-${p.id}`} />
-                    <BtnS onClick={async () => {
-                      const newName = document.getElementById(`socio-name-${p.id}`)?.value;
-                      if (!newName) return;
-                      try {
-                        await sb.from("socios").update({ name: newName }).eq("id", p.id);
-                        showToast(`Socio "${newName}" actualizado`);
-                        await refresh();
-                      } catch (e) { alert("Error: " + e.message); }
-                    }}>Guardar</BtnS>
-                  </div>
-                ))}
-              </div>
-            </Cd>
-
-            {/* CREATE USER */}
-            <Cd className="p-5">
-              <h3 className="fd font-semibold text-white mb-4">🔑 Crear Usuario</h3>
-              <div className="fb text-xs mb-3" style={{ color: "var(--cd)" }}>
-                El usuario recibirá un correo para confirmar. Asigna rol después de crear.
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <Fl label="Email"><input className="ti" id="new-user-email" placeholder="correo@ejemplo.com" /></Fl>
-                <Fl label="Contraseña temporal"><input className="ti" type="password" id="new-user-pass" placeholder="Mínimo 6 caracteres" /></Fl>
-                <Fl label="Nombre"><input className="ti" id="new-user-name" placeholder="Nombre completo" /></Fl>
-              </div>
-              <div className="flex gap-3 mt-3">
-                <BtnP onClick={async () => {
-                  const email = document.getElementById("new-user-email")?.value;
-                  const pass = document.getElementById("new-user-pass")?.value;
-                  const name = document.getElementById("new-user-name")?.value;
-                  if (!email || !pass) return alert("Email y contraseña son obligatorios");
-                  if (pass.length < 6) return alert("La contraseña debe tener al menos 6 caracteres");
-                  try {
-                    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json", "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY },
-                      body: JSON.stringify({ email, password: pass, name: name || email }),
-                    });
-                    const result = await res.json();
-                    if (result.error) throw new Error(result.error);
-                    showToast(`Usuario ${email} creado`);
-                    document.getElementById("new-user-email").value = "";
-                    document.getElementById("new-user-pass").value = "";
-                    document.getElementById("new-user-name").value = "";
-                  } catch (e) { alert("Error: " + e.message); }
-                }}>Crear Usuario</BtnP>
-              </div>
-            </Cd>
-
-            {/* WHATSAPP */}
-            <Cd className="p-5">
-              <h3 className="fd font-semibold text-white mb-4">WhatsApp del Catálogo</h3>
-              <Fl label="Número (con código de país, ej: 5219991234567)" hint="Se usa para el botón de contacto en el catálogo público">
-                <div className="flex gap-2">
-                  <input className="ti flex-1" value={data.settings?.whatsapp_number?.replace(/"/g, "") || ""} id="waInput" placeholder="5219991234567" />
-                  <BtnP onClick={async () => { const v = document.getElementById("waInput")?.value; if (v) { await db.saveSetting("whatsapp_number", JSON.stringify(v)); showToast("WhatsApp actualizado"); await refresh(); } }}>Guardar</BtnP>
-                </div>
-              </Fl>
-            </Cd>
-            <Cd className="p-5">
-              <h3 className="fd font-semibold text-white mb-4">Documentos Obligatorios por Operación</h3>
-              <div className="fb text-sm" style={{ color: "var(--cd)" }}>
-                Los documentos marcados como obligatorios se resaltan en rojo cuando no están subidos.
-                Configura los requerimientos por tipo de operación en la tabla <code>app_settings</code> → key: <code>required_docs</code>.
-              </div>
-            </Cd>
-            <Cd className="p-5">
-              <h3 className="fd font-semibold text-white mb-3">Catálogo Público</h3>
-              <div className="fb text-sm" style={{ color: "var(--cd)" }}>
-                URL: <a href="?catalog" target="_blank" className="hover:underline" style={{ color: "var(--gd)" }}>{window.location.origin}?catalog</a>
-              </div>
-              <div className="fb text-sm mt-2" style={{ color: "var(--cd)" }}>
-                Para publicar una pieza, edítala y activa "Publicar en catálogo público".
-              </div>
-            </Cd>
-          </div>
-        )}
+        {page === "settings" && <SettingsPage data={data} showToast={showToast} refresh={refresh} />}
 
       </div></main>
 
@@ -1369,31 +1386,34 @@ export default function App() {
       {/* MODALS */}
       <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} /></Md>
       <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} />}</Md>
-      <Md open={modal === "sell"} onClose={cm} title={"Venta — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} />}</Md>
+      <Md open={modal === "sell"} onClose={cm} title={"Venta — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} />}</Md>
       <Md open={modal === "trade"} onClose={cm} title={"Trade-out — " + (sel?.name || "")} wide>{sel && <TradeForm piece={sel} allPieces={data.pieces} onSave={hTrade} onClose={cm} />}</Md>
-      <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} />}</Md>
-      <Md open={modal === "ct"} onClose={cm} title="Nuevo Corte Mensual">{<CorteForm onSave={async (c) => { try { await db.saveCorte(c); showToast("Corte registrado"); await refresh(); cm(); } catch (e) { alert(e.message); } }} onClose={cm} />}</Md>
+      <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} />}</Md>
+      <Md open={modal === "ct"} onClose={cm} title="Nuevo Corte Mensual">{<CorteForm onSave={async (c) => { try { await db.saveCorte(c); showToast("Corte registrado"); await refresh(); cm(); } catch (e) { alert(e.message); } }} onClose={cm} socios={data.socios} />}</Md>
     </div>
   );
 }
 
 /* ═══ SMALL FORMS ═══ */
-function CapitalForm({ onSave, onClose }) {
-  const [amt, setAmt] = useState(""); const [desc, setDesc] = useState(""); const [partner, setPartner] = useState("fernando");
+function CapitalForm({ onSave, onClose, socios }) {
+  const sl = socios || [];
+  const [amt, setAmt] = useState(""); const [desc, setDesc] = useState(""); const [partner, setPartner] = useState(sl[0]?.id || "");
   return <div className="space-y-4">
-    <Fl label="¿Quién inyecta?" req><div className="space-y-2">{PARTNERS.map(p => <button key={p.id} type="button" onClick={() => setPartner(p.id)} className="w-full flex items-center gap-3 p-3 rounded-xl" style={{ background: partner === p.id ? "rgba(201,169,110,.1)" : "rgba(255,255,255,.02)", border: partner === p.id ? "1.5px solid var(--gd)" : "1.5px solid rgba(255,255,255,.06)" }}><div className="w-8 h-8 rounded-lg flex items-center justify-center fb text-xs font-bold" style={{ background: `${p.color}20`, color: p.color }}>{p.pct}%</div><div className="text-left"><div className="fb text-sm font-semibold text-white">{p.name}</div></div>{partner === p.id && <div className="ml-auto" style={{ color: "var(--gd)" }}>✓</div>}</button>)}</div></Fl>
+    <Fl label="¿Quién inyecta?" req><div className="space-y-2">{sl.map(s => <button key={s.id} type="button" onClick={() => setPartner(s.id)} className="w-full flex items-center gap-3 p-3 rounded-xl" style={{ background: partner === s.id ? "rgba(201,169,110,.1)" : "rgba(255,255,255,.02)", border: partner === s.id ? "1.5px solid var(--gd)" : "1.5px solid rgba(255,255,255,.06)" }}><div className="w-8 h-8 rounded-lg flex items-center justify-center fb text-xs font-bold" style={{ background: `${s.color}20`, color: s.color }}>{s.participacion}%</div><div className="text-left"><div className="fb text-sm font-semibold text-white">{s.name}</div></div>{partner === s.id && <div className="ml-auto" style={{ color: "var(--gd)" }}>✓</div>}</button>)}</div></Fl>
     <Fl label="Monto (MXN)" req><input type="number" className="ti" value={amt} onChange={e => setAmt(e.target.value)} /></Fl>
     <Fl label="Descripción"><input className="ti" value={desc} onChange={e => setDesc(e.target.value)} /></Fl>
     <div className="flex gap-3"><BtnP onClick={() => { if (amt) onSave(Number(amt), desc, partner); }}>Registrar</BtnP><BtnS onClick={onClose}>Cancelar</BtnS></div>
   </div>;
 }
 
-function CorteForm({ onSave, onClose }) {
+function CorteForm({ onSave, onClose, socios }) {
+  const sl = socios || [];
   const [period, setP] = useState(td().slice(0, 7)); const [label, setL] = useState(""); const [util, setU] = useState(0);
+  const splits = Object.fromEntries(sl.map(s => [s.id, Math.round(util * (Number(s.participacion) / 100))]));
   return <div className="space-y-4">
     <div className="grid grid-cols-2 gap-3"><Fl label="Periodo" req><input type="month" className="ti" value={period} onChange={e => setP(e.target.value)} /></Fl><Fl label="Etiqueta"><input className="ti" value={label} onChange={e => setL(e.target.value)} /></Fl></div>
     <Fl label="Utilidad del periodo (MXN)"><input type="number" className="ti" value={util} onChange={e => setU(Number(e.target.value))} /></Fl>
-    {util > 0 && <div className="grid grid-cols-4 gap-3 text-center rounded-xl p-3" style={{ background: "rgba(74,222,128,.06)" }}><div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Total</span><div className="fd font-bold" style={{ color: "var(--gn)" }}>{fmxn(util)}</div></div>{PARTNERS.map(p => <div key={p.id}><span className="fb text-xs" style={{ color: p.color }}>{p.short}</span><div className="fd font-bold text-white">{fmxn(Math.round(util * (p.pct / 100)))}</div></div>)}</div>}
-    <div className="flex gap-3"><BtnP onClick={() => onSave({ id: "C-" + uid().slice(0, 5), periodo: period, label: label || period, utilidad: util, splits: { fernando: Math.round(util * .4), socioA: Math.round(util * .3), socioB: Math.round(util * .3) }, decision: "reinvertir" })}>Cerrar Corte</BtnP><BtnS onClick={onClose}>Cancelar</BtnS></div>
+    {util > 0 && <div className={`grid gap-3 text-center rounded-xl p-3`} style={{ background: "rgba(74,222,128,.06)", gridTemplateColumns: `repeat(${sl.length + 1}, 1fr)` }}><div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Total</span><div className="fd font-bold" style={{ color: "var(--gn)" }}>{fmxn(util)}</div></div>{sl.map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name}</span><div className="fd font-bold text-white">{fmxn(splits[s.id] || 0)}</div></div>)}</div>}
+    <div className="flex gap-3"><BtnP onClick={() => onSave({ id: "C-" + uid().slice(0, 5), periodo: period, label: label || period, utilidad: util, splits, decision: "reinvertir" })}>Cerrar Corte</BtnP><BtnS onClick={onClose}>Cancelar</BtnS></div>
   </div>;
 }
