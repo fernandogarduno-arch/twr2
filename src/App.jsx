@@ -332,7 +332,7 @@ function AiRefValidator({ brand, model, refNum, onResult }) {
       <button type="button" onClick={validate} disabled={loading || !brand || !refNum}
         className="fb text-xs px-3 py-1.5 rounded-lg font-medium transition-all disabled:opacity-40 flex items-center gap-1.5"
         style={{ background: "rgba(168,85,247,.15)", color: "var(--pr)" }}>
-        <Ico d={IC.ai} s={14} />{loading ? "Validando..." : "Validar con IA"}
+        <Ico d={IC.ai} s={14} />{loading ? "Buscando en web..." : "Validar con IA"}
       </button>
       {result && (
         <div className="mt-2 p-3 rounded-lg fb text-xs space-y-1" style={{ background: result.valid ? "rgba(74,222,128,.06)" : "rgba(251,113,133,.06)", border: result.valid ? "1px solid rgba(74,222,128,.15)" : "1px solid rgba(251,113,133,.15)" }}>
@@ -341,7 +341,12 @@ function AiRefValidator({ brand, model, refNum, onResult }) {
           {result.case_mm && <div><span style={{color:"var(--cd)"}}>Caja:</span> <span className="text-white">{result.case_mm}</span></div>}
           {result.movement && <div><span style={{color:"var(--cd)"}}>Calibre:</span> <span className="text-white">{result.movement}</span></div>}
           {result.material && <div><span style={{color:"var(--cd)"}}>Material:</span> <span className="text-white">{result.material}</span></div>}
+          {result.dial && <div><span style={{color:"var(--cd)"}}>Dial:</span> <span className="text-white">{result.dial}</span></div>}
+          {result.water_resistance && <div><span style={{color:"var(--cd)"}}>WR:</span> <span className="text-white">{result.water_resistance}</span></div>}
+          {result.year_range && <div><span style={{color:"var(--cd)"}}>Producción:</span> <span className="text-white">{result.year_range}</span></div>}
           {result.retail_usd && <div><span style={{color:"var(--cd)"}}>Retail:</span> <span className="text-white">{result.retail_usd}</span></div>}
+          {result.market_usd && <div><span style={{color:"var(--cd)"}}>Mercado:</span> <span className="text-white font-semibold">{result.market_usd}</span></div>}
+          {result.sources && <div><span style={{color:"var(--cd)"}}>Fuentes:</span> <span className="text-white opacity-60">{result.sources}</span></div>}
           {result.notes && <div style={{color:"var(--cd)"}}>{result.notes}</div>}
         </div>
       )}
