@@ -77,6 +77,9 @@ const db = {
   async saveCorte(c) { const { error } = await sb.from("cortes").upsert(c); if (error) throw error; },
   async saveClient(c) { const { error } = await sb.from("clientes").upsert(c); if (error) throw error; },
   async saveSupplier(s) { const { error } = await sb.from("proveedores").upsert(s); if (error) throw error; },
+  async delSupplier(id) { const { error } = await sb.from("proveedores").delete().eq("id", id); if (error) throw error; },
+  async delClient(id) { const { error } = await sb.from("clientes").delete().eq("id", id); if (error) throw error; },
+  async delProfile(id) { const { error } = await sb.from("profiles").delete().eq("id", id); if (error) throw error; },
   async saveFoto(f) { const { data, error } = await sb.from("pieza_fotos").insert(f).select(); if (error) throw error; return data?.[0]; },
   async softDelFoto(id) { const { error } = await sb.from("pieza_fotos").update({ deleted_at: new Date().toISOString() }).eq("id", id); if (error) throw error; },
   async saveDoc(d) { const { data, error } = await sb.from("transaccion_docs").insert(d).select(); if (error) throw error; return data?.[0]; },
@@ -119,6 +122,17 @@ const DIAL_COLORS = ["Negro","Blanco","Azul","Verde","Gris","Plata","Champagne",
 const BEZEL_TYPES = ["Liso","Fluted","Giratorio Uni","Giratorio Bi","Tachymeter","GMT","Diamantes","Cerámico","Count-up","Ninguno","Otro"];
 const STRAP_TYPES = ["Acero Oyster","Acero Jubilee","Acero President","Acero Integrado","Caucho","Piel Cocodrilo","Piel Becerro","NATO/Nylon","Titanio","Oro","Cerámica","Otro"];
 const EXIT_TYPES = [{v:"venta",l:"Venta"},{v:"trade_out",l:"Trade Out"},{v:"retorno_consignacion",l:"Retorno consignación"}];
+const ROLE_OPTS = ["superuser","director","operador","inversionista"];
+const PERMS = {
+  superuser:      { dash:true, inv:true, newPc:true, sell:true, tx:true, txEdit:false, cortes:true, cats:true, reports:true, cfgUsers:true, cfgSocios:true, cfgCat:true, del:true },
+  director:       { dash:true, inv:true, newPc:true, sell:true, tx:true, txEdit:false, cortes:true, cats:true, reports:true, cfgUsers:false, cfgSocios:false, cfgCat:true, del:false },
+  operador:       { dash:true, inv:true, newPc:true, sell:false, tx:true, txEdit:false, cortes:false, cats:true, reports:false, cfgUsers:false, cfgSocios:false, cfgCat:false, del:false },
+  inversionista:  { dash:true, inv:true, newPc:false, sell:false, tx:false, txEdit:false, cortes:true, cats:false, reports:true, cfgUsers:false, cfgSocios:false, cfgCat:false, del:false },
+  pending:        { dash:false, inv:false, newPc:false, sell:false, tx:false, txEdit:false, cortes:false, cats:false, reports:false, cfgUsers:false, cfgSocios:false, cfgCat:false, del:false },
+};
+const can = (role, perm) => (PERMS[role] || PERMS.pending)[perm] || false;
+const SUPPLIER_TYPES = ["Particular","Dealer","Consignación","Subasta","Trade-in"];
+const CLIENT_TIERS = ["Prospecto","Regular","VIP","Mayorista"];
 const xtLabel = v => EXIT_TYPES.find(e => e.v === v)?.l || v;
 const FUND_INFO = {
   FIC: { short:"Fondo de Inversión", full:"Fondo de Inversión Compartida", desc:"Fondo común. Utilidades se reparten según participación de socios.", icon:"🏦" },
@@ -678,13 +692,14 @@ function LoginScreen({ onLogin }) {
 /* ═══════════════════════════════════════════════════════════════════
    PIECE FORM — Full form with photos, docs, custom refs
    ═══════════════════════════════════════════════════════════════════ */
-function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId }) {
+function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier }) {
   const autoSku = piece?.sku || genSku(allPieces);
-  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "" };
+  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "" };
   const [f, sF] = useState(piece ? { ...blank, ...piece } : blank);
   const [localFotos, setLocalFotos] = useState(fotosProp || []);
   const [combinedFin, setCombinedFin] = useState(false);
   const [newCapital, setNewCapital] = useState(0);
+  const [newSupplier, setNewSupplier] = useState(null);
   const fromFund = Math.max(0, (f.cost || 0) - newCapital);
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const autoName = (b, m) => [b, m].filter(Boolean).join(" ");
@@ -719,6 +734,39 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
         <Fl label="Bisel"><select className="ti" value={f.bezel_type || ""} onChange={e => u("bezel_type", e.target.value)}><option value="">—</option>{BEZEL_TYPES.map(b => <option key={b} value={b}>{b}</option>)}</select></Fl>
         <Fl label="Caja (mm)"><input className="ti" value={f.case_size || ""} onChange={e => u("case_size", e.target.value)} placeholder="41" /></Fl>
         <Fl label="Correa / Brazalete"><select className="ti" value={f.strap_type || ""} onChange={e => u("strap_type", e.target.value)}><option value="">—</option>{STRAP_TYPES.map(s => <option key={s} value={s}>{s}</option>)}</select></Fl>
+      </div>
+
+      {/* Proveedor */}
+      <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
+        <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Proveedor / Vendedor</div>
+        {!newSupplier ? (
+          <div className="flex gap-2">
+            <select className="ti flex-1" value={f.supplier_id || ""} onChange={e => u("supplier_id", e.target.value)}>
+              <option value="">— Sin asignar —</option>
+              {(suppliers || []).map(s => <option key={s.id} value={s.id}>{s.name} ({s.type || "Particular"}) {s.phone ? `· ${s.phone}` : ""}</option>)}
+            </select>
+            <button type="button" onClick={() => setNewSupplier({ name: "", phone: "", email: "", ine: "", type: "Particular", notes: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>+ Nuevo</button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <input className="ti" placeholder="Nombre *" value={newSupplier.name} onChange={e => setNewSupplier(p => ({ ...p, name: e.target.value }))} />
+              <select className="ti" value={newSupplier.type} onChange={e => setNewSupplier(p => ({ ...p, type: e.target.value }))}>{SUPPLIER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+              <input className="ti" placeholder="Teléfono / WhatsApp" value={newSupplier.phone} onChange={e => setNewSupplier(p => ({ ...p, phone: e.target.value }))} />
+              <input className="ti" placeholder="Email" value={newSupplier.email} onChange={e => setNewSupplier(p => ({ ...p, email: e.target.value }))} />
+              <input className="ti" placeholder="INE / Identificación" value={newSupplier.ine} onChange={e => setNewSupplier(p => ({ ...p, ine: e.target.value }))} />
+              <input className="ti" placeholder="Notas" value={newSupplier.notes} onChange={e => setNewSupplier(p => ({ ...p, notes: e.target.value }))} />
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={async () => {
+                if (!newSupplier.name) return alert("Nombre requerido");
+                const s = { id: "Pid_" + uid().slice(0, 8), ...newSupplier };
+                try { if (onSaveSupplier) await onSaveSupplier(s); u("supplier_id", s.id); setNewSupplier(null); } catch(e) { alert("Error: " + e.message); }
+              }} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.15)", color: "var(--gn)" }}>Guardar Proveedor</button>
+              <button type="button" onClick={() => setNewSupplier(null)} className="fb text-xs px-3 py-1.5 rounded-lg" style={{ color: "var(--cd)" }}>Cancelar</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Origen del recurso + financiamiento combinado */}
@@ -806,21 +854,41 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
 }
 
 /* ═══ SELL FORM ═══ */
-function SellForm({ piece, onSave, onClose, docs, socios, allPieces }) {
-  const [f, sF] = useState({ xPrice: piece.price_asked || 0, xDate: td(), cDate: td(), payOut: "SPEI", xType: "venta", xFund: "FIC" });
+function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, onSaveClient }) {
+  const [f, sF] = useState({ xPrice: piece.price_asked || 0, xDate: td(), cDate: td(), payOut: "SPEI", xType: "venta", xFund: "FIC", client_id: "" });
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const c = piece.cost || 0;
   const pr = f.xPrice - c;
   const isTrade = f.xType === "trade_out";
+  const [newClient, setNewClient] = useState(null);
 
   // Trade-out state
   const [incoming, setIncoming] = useState([]);
   const [cashOut, setCashOut] = useState(0);
   const [cashIn, setCashIn] = useState(0);
-  const addIn = () => setIncoming(p => [...p, { id: uid(), brand: "", model: "", ref: "", value: 0 }]);
+  const addIn = () => {
+    // Auto-set value: remaining balance after cash and other pieces
+    const otherPiecesVal = incoming.reduce((s, p) => s + (p.value || 0), 0);
+    const autoVal = Math.max(0, c + cashOut - cashIn - otherPiecesVal);
+    setIncoming(p => [...p, { id: uid(), brand: "", model: "", ref: "", value: autoVal }]);
+  };
   const updIn = (id, k, v) => setIncoming(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
   const remIn = (id) => setIncoming(p => p.filter(x => x.id !== id));
   const totalIn = incoming.reduce((s, p) => s + (p.value || 0), 0);
+
+  // Auto-recalc: when cash changes and there's exactly 1 incoming piece, update its value
+  const autoRecalcSingle = (newCashIn, newCashOut) => {
+    if (incoming.length === 1) {
+      const autoVal = Math.max(0, c + newCashOut - newCashIn);
+      setIncoming(prev => prev.map(x => ({ ...x, value: autoVal })));
+    }
+  };
+  const handleCashIn = (v) => { setCashIn(v); autoRecalcSingle(v, cashOut); };
+  const handleCashOut = (v) => { setCashOut(v); autoRecalcSingle(cashIn, v); };
+
+  // Balance: outgoing cost should equal incoming pieces + cashIn - cashOut
+  const expectedIn = c + cashOut - cashIn;
+  const balanceDiff = totalIn - expectedIn;
 
   return (
     <div className="space-y-4">
@@ -833,6 +901,37 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces }) {
         <Fl label="Tipo de Salida" req><select className="ti" value={f.xType} onChange={e => u("xType", e.target.value)}>{EXIT_TYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Fl>
         {!isTrade && <Fl label="Precio de Venta" req><input type="number" className="ti" value={f.xPrice} onChange={e => u("xPrice", Number(e.target.value))} /></Fl>}
         {isTrade && <Fl label="Valor de salida"><div className="fd font-bold text-lg text-white pt-1">{fmxn(c)}</div></Fl>}
+      </div>
+
+      {/* Cliente / Contraparte */}
+      <div className="rounded-xl p-3" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
+        <div className="fb text-xs font-bold uppercase tracking-widest mb-2" style={{ color: "var(--gd)" }}>{isTrade ? "Contraparte del Trade" : "Cliente / Comprador"}</div>
+        {!newClient ? (
+          <div className="flex gap-2">
+            <select className="ti flex-1" value={f.client_id || ""} onChange={e => u("client_id", e.target.value)}>
+              <option value="">— Sin asignar —</option>
+              {(clients || []).map(c => <option key={c.id} value={c.id}>{c.name} {c.phone ? `· ${c.phone}` : ""}</option>)}
+            </select>
+            <button type="button" onClick={() => setNewClient({ name: "", phone: "", email: "", ine: "", notes: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>+ Nuevo</button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <input className="ti" placeholder="Nombre *" value={newClient.name} onChange={e => setNewClient(p => ({ ...p, name: e.target.value }))} />
+              <input className="ti" placeholder="Teléfono / WhatsApp" value={newClient.phone} onChange={e => setNewClient(p => ({ ...p, phone: e.target.value }))} />
+              <input className="ti" placeholder="Email" value={newClient.email} onChange={e => setNewClient(p => ({ ...p, email: e.target.value }))} />
+              <input className="ti" placeholder="INE / Identificación" value={newClient.ine} onChange={e => setNewClient(p => ({ ...p, ine: e.target.value }))} />
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={async () => {
+                if (!newClient.name) return alert("Nombre requerido");
+                const cl = { id: "Cid_" + uid().slice(0, 8), ...newClient, tier: "Regular" };
+                try { if (onSaveClient) await onSaveClient(cl); u("client_id", cl.id); setNewClient(null); } catch(e) { alert("Error: " + e.message); }
+              }} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.15)", color: "var(--gn)" }}>Guardar Cliente</button>
+              <button type="button" onClick={() => setNewClient(null)} className="fb text-xs px-3 py-1.5 rounded-lg" style={{ color: "var(--cd)" }}>Cancelar</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ═══ TRADE OUT SECTION ═══ */}
@@ -901,8 +1000,8 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces }) {
           <div className="rounded-xl p-4" style={{ background: "rgba(96,165,250,.04)", border: "1px solid rgba(96,165,250,.1)" }}>
             <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--bl)" }}>💰 Diferencia en Efectivo</div>
             <div className="grid grid-cols-2 gap-3">
-              <Fl label="Nosotros pagamos" hint="Sale del fondo"><input type="number" className="ti" value={cashOut} onChange={e => setCashOut(Number(e.target.value))} placeholder="0" /></Fl>
-              <Fl label="Nosotros recibimos" hint="Entra al fondo"><input type="number" className="ti" value={cashIn} onChange={e => setCashIn(Number(e.target.value))} placeholder="0" /></Fl>
+              <Fl label="Nosotros pagamos" hint="Sale del fondo"><input type="number" className="ti" value={cashOut} onChange={e => handleCashOut(Number(e.target.value))} placeholder="0" /></Fl>
+              <Fl label="Nosotros recibimos" hint="Entra al fondo"><input type="number" className="ti" value={cashIn} onChange={e => handleCashIn(Number(e.target.value))} placeholder="0" /></Fl>
             </div>
             {(cashOut > 0 || cashIn > 0) && <div className="mt-2 fb text-xs p-2 rounded-lg" style={{ background: "rgba(96,165,250,.08)", color: "var(--bl)" }}>
               {cashOut > 0 && <span>↑ {fmxn(cashOut)} sale del fondo</span>}
@@ -912,10 +1011,14 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces }) {
           </div>
 
           {/* Trade balance */}
-          <div className="rounded-xl p-3 grid grid-cols-3 gap-2 text-center" style={{ background: "rgba(201,169,110,.08)" }}>
-            <div><div className="fb text-xs" style={{ color: "var(--rd)" }}>Sale</div><div className="fd font-bold text-white">{fmxn(c)}</div></div>
-            <div><div className="fb text-xs" style={{ color: "var(--gn)" }}>Entra</div><div className="fd font-bold text-white">{fmxn(totalIn)}</div></div>
-            <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Neto $</div><div className="fd font-bold" style={{ color: (totalIn + cashIn - cashOut - c) >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(totalIn + cashIn - cashOut - c)}</div></div>
+          <div className="rounded-xl p-3 text-center" style={{ background: balanceDiff === 0 ? "rgba(74,222,128,.08)" : "rgba(251,191,36,.08)", border: balanceDiff === 0 ? "1px solid rgba(74,222,128,.15)" : "1px solid rgba(251,191,36,.15)" }}>
+            <div className="grid grid-cols-4 gap-2">
+              <div><div className="fb text-xs" style={{ color: "var(--rd)" }}>Sale</div><div className="fd font-bold text-white">{fmxn(c)}</div></div>
+              <div><div className="fb text-xs" style={{ color: "var(--gn)" }}>Piezas In</div><div className="fd font-bold text-white">{fmxn(totalIn)}</div></div>
+              <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash Neto</div><div className="fd font-bold" style={{ color: (cashIn - cashOut) >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(cashIn - cashOut)}</div></div>
+              <div><div className="fb text-xs" style={{ color: balanceDiff === 0 ? "var(--gn)" : "#FBBF24" }}>{balanceDiff === 0 ? "✓ Cuadra" : "⚠ Descuadre"}</div><div className="fd font-bold" style={{ color: balanceDiff === 0 ? "var(--gn)" : "#FBBF24" }}>{balanceDiff === 0 ? "$0" : fmxn(balanceDiff)}</div></div>
+            </div>
+            {balanceDiff !== 0 && <div className="fb text-xs mt-2" style={{ color: "#FBBF24" }}>Piezas ({fmxn(totalIn)}) + Cash recibido ({fmxn(cashIn)}) - Cash pagado ({fmxn(cashOut)}) debe = Costo salida ({fmxn(c)})</div>}
           </div>
         </>
       )}
@@ -954,6 +1057,8 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces }) {
         {isTrade ? (
           <BtnG onClick={() => {
             if (incoming.length === 0 || !incoming.some(i => i.brand && i.value > 0)) return alert("Agrega al menos 1 pieza que recibes");
+            const bd = totalIn + cashIn - cashOut - c;
+            if (bd !== 0 && !confirm(`El trade está descuadrado por ${fmxn(bd)}. ¿Registrar de todos modos?`)) return;
             onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: "trade_out", exit_fund: piece.fondo_id, ...f, _tradeIncoming: incoming, _cashOut: cashOut, _cashIn: cashIn });
           }}>Registrar Trade Out</BtnG>
         ) : (
@@ -1100,7 +1205,7 @@ function SettingsPage({ data, showToast, refresh, currentUser }) {
   const [newUser, setNewUser] = useState({ email: "", pass: "", name: "" });
   const [creating, setCreating] = useState(false);
   const [profileEdits, setProfileEdits] = useState(Object.fromEntries(profiles.map(p => [p.id, { name: p.name || "", role: p.role || "operador" }])));
-  const ROLES = ["superuser", "director", "operador", "inversionista"];
+  const ROLES = ROLE_OPTS;
 
   return (
     <div className="space-y-5 au">
@@ -1139,8 +1244,11 @@ function SettingsPage({ data, showToast, refresh, currentUser }) {
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 fb text-xs font-bold" style={{ background: p.active ? "rgba(74,222,128,.15)" : "rgba(251,113,133,.15)", color: p.active ? "var(--gn)" : "var(--rd)" }}>
                   {(ed.name || "?")[0].toUpperCase()}
                 </div>
-                <input className="ti flex-1" style={{ fontSize: 13 }} value={ed.name} placeholder="Nombre"
-                  onChange={e => setProfileEdits(prev => ({ ...prev, [p.id]: { ...prev[p.id], name: e.target.value } }))} />
+                <div className="flex-1 min-w-0">
+                  <input className="ti w-full" style={{ fontSize: 13 }} value={ed.name} placeholder="Nombre"
+                    onChange={e => setProfileEdits(prev => ({ ...prev, [p.id]: { ...prev[p.id], name: e.target.value } }))} />
+                  <div className="fb text-xs mt-0.5 truncate" style={{ color: "var(--cd)" }}>{p.email}</div>
+                </div>
                 <select className="ti" style={{ fontSize: 12, width: 130, padding: "6px 8px" }} value={ed.role}
                   onChange={e => setProfileEdits(prev => ({ ...prev, [p.id]: { ...prev[p.id], role: e.target.value } }))}>
                   {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
@@ -1153,6 +1261,11 @@ function SettingsPage({ data, showToast, refresh, currentUser }) {
                   } catch (e) { alert("Error: " + e.message); }
                 }}>Guardar</BtnP>}
                 {!changed && <div className="fb text-xs px-2" style={{ color: "var(--cd)", minWidth: 60 }}>{p.role}</div>}
+                <button onClick={async () => {
+                  if (p.email === user?.email) return alert("No puedes eliminarte a ti mismo");
+                  if (!confirm(`¿Eliminar usuario ${p.name} (${p.email})?`)) return;
+                  try { await db.delProfile(p.id); showToast(`${p.name} eliminado`); await refresh(); } catch(e) { alert("Error: " + e.message); }
+                }} className="fb text-xs px-2 py-1 rounded" style={{ color: "var(--rd)" }} title="Eliminar usuario">🗑</button>
               </div>
             );
           })}
@@ -1364,12 +1477,12 @@ export default function App() {
         const fondo = p.fondo_id || "FIC";
 
         // Mark piece as traded out
-        await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: "trade_out", trade_ref: trRef });
+        await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: "trade_out", trade_ref: trRef, client_id: p.client_id || null });
 
         // Create incoming pieces (track created for unique SKU)
         const created = [...(data.pieces || [])];
         for (const item of incoming) {
-          const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: p.xDate, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef}`, trade_ref: trRef };
+          const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: p.xDate, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${p.sku || ""} (${p.name || ""} ref ${p.ref || ""})`.trim(), trade_ref: trRef };
           created.push(np);
           await db.savePiece(np);
         }
@@ -1388,7 +1501,7 @@ export default function App() {
 
       // ═══ REGULAR SALE ═══
       const profit = p.xPrice - cost;
-      await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: p.xType, exit_fund: p.xFund });
+      await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: p.xType, exit_fund: p.xFund, client_id: p.client_id || null });
       await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, descripcion: `Venta ${p.name} → ${FUND_INFO[p.xFund]?.short} (Costo: ${fmxn(cost)}, Utilidad: ${fmxn(profit)})`, metodo_pago: p.payOut });
       showToast(`Venta registrada: ${p.name} — Utilidad: ${fmxn(profit)}`);
       await refresh(); cm();
@@ -1408,7 +1521,8 @@ export default function App() {
       // Create incoming pieces
       const created = [...(data.pieces || [])];
       for (const item of incoming) {
-        const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: date, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef}`, trade_ref: trRef };
+        const outDesc = outPieces.map(op => `${op.sku || ""} (${op.name || ""} ref ${op.ref || ""})`).join(" + ");
+        const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: date, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${outDesc}`.trim(), trade_ref: trRef };
         created.push(np);
         await db.savePiece(np);
       }
@@ -1495,7 +1609,7 @@ export default function App() {
               <St label="Total Invertido" value={fmxn(comp.cash + comp.invC)} />
               <St label="Cash en Fondo" value={fmxn(comp.cash)} accent="var(--bl)" />
               <St label="Inventario (Costo)" value={fmxn(comp.invC)} accent="var(--gd)" />
-              <St label="Utilidad Realizada" value={fmxn(comp.rp)} accent="var(--gn)" />
+              <St label="Utilidad Realizada" value={fmxn(comp.rp)} sub={comp.cap > 0 ? `${((comp.rp / comp.cap) * 100).toFixed(1)}% del capital` : ""} accent="var(--gn)" />
               <St label="MOIC" value={`${(comp.moic || 0).toFixed(2)}x`} accent="var(--pr)" />
             </div>
             {comp.rp !== 0 && (
@@ -1506,11 +1620,13 @@ export default function App() {
                     <div key={s.id} className="rounded-xl p-3" style={{ background: `${s.color}11` }}>
                       <div className="fb text-xs" style={{ color: s.color }}>{s.name} {s.participacion}%</div>
                       <div className="fd font-bold text-lg text-white">{fmxn(s.share)}</div>
+                      {comp.cap > 0 && <div className="fb text-xs mt-0.5" style={{ color: "var(--cd)" }}>{((s.share / comp.cap) * 100).toFixed(1)}% s/capital</div>}
                     </div>
                   ))}
                   <div className="rounded-xl p-3" style={{ background: "rgba(201,169,110,.06)" }}>
                     <div className="fb text-xs" style={{ color: "var(--gd)" }}>Total</div>
                     <div className="fd font-bold text-lg" style={{ color: comp.rp >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(comp.rp)}</div>
+                    {comp.cap > 0 && <div className="fb text-xs mt-0.5" style={{ color: "var(--cd)" }}>{((comp.rp / comp.cap) * 100).toFixed(1)}% s/capital</div>}
                   </div>
                 </div>
               </div>
@@ -1586,35 +1702,25 @@ export default function App() {
         {page === "cortes" && (
           <div className="space-y-5 au">
             <div className="flex items-center justify-between"><h1 className="fd text-2xl md:text-3xl font-bold text-white">Cortes Mensuales</h1><BtnP onClick={() => setModal("ct")}>+ Corte</BtnP></div>
-            <div className="space-y-3">{(data.cortes || []).map(c => <Cd key={c.id} className="p-4"><div className="flex items-center gap-3 mb-2"><span className="fb text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>{c.id}</span><span className="fd font-semibold text-white">{c.periodo}</span><span className="fb text-sm" style={{ color: "var(--cd)" }}>{c.label}</span></div>{c.utilidad > 0 && <div className={`grid gap-3 text-center py-2 rounded-xl`} style={{ background: "rgba(255,255,255,.03)", gridTemplateColumns: `repeat(${(data.socios?.length || 0) + 1}, 1fr)` }}><div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad</span><div className="fd font-bold" style={{ color: "var(--gn)" }}>{fmxn(c.utilidad)}</div></div>{(data.socios || []).map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name}</span><div className="fd font-bold text-white">{fmxn(c.splits?.[s.id] || 0)}</div></div>)}</div>}</Cd>)}</div>
+            {(data.cortes || []).length === 0 && <Cd className="p-8 text-center"><div className="fb text-sm" style={{ color: "var(--cd)" }}>No hay cortes registrados. Crea el primer corte mensual para controlar utilidades.</div></Cd>}
+            <div className="space-y-3">{(data.cortes || []).map(c => <Cd key={c.id} className="p-4">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="fb text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>{c.id}</span>
+                <span className="fd font-semibold text-white">{c.periodo}</span>
+                <span className="fb text-sm" style={{ color: "var(--cd)" }}>{c.label}</span>
+                <Bd text={c.decision === "retirar" ? "💰 Retirado" : "🔄 Reinvertido"} v={c.decision === "retirar" ? "green" : "blue"} />
+              </div>
+              {c.utilidad > 0 && <div className={`grid gap-3 text-center py-2 rounded-xl`} style={{ background: "rgba(255,255,255,.03)", gridTemplateColumns: `repeat(${(data.socios?.length || 0) + 1}, 1fr)` }}>
+                <div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad</span><div className="fd font-bold" style={{ color: "var(--gn)" }}>{fmxn(c.utilidad)}</div></div>
+                {(data.socios || []).map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name}</span><div className="fd font-bold text-white">{fmxn(c.splits?.[s.id] || 0)}</div></div>)}
+              </div>}
+              {c.utilidad === 0 && <div className="fb text-sm" style={{ color: "var(--cd)" }}>Sin utilidad en este periodo</div>}
+            </Cd>)}</div>
           </div>
         )}
 
         {/* ═══ CATALOGS ═══ */}
-        {page === "catalogs" && (
-          <div className="space-y-5 au">
-            <h1 className="fd text-2xl md:text-3xl font-bold text-white">Catálogos</h1>
-            <Cd className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="fd font-semibold text-white">Catálogo Público</h3>
-                <a href="?catalog" target="_blank" className="fb text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}><Ico d={IC.globe} s={14} />Ver catálogo</a>
-              </div>
-              <div className="fb text-sm" style={{ color: "var(--cd)" }}>
-                {(data.pieces || []).filter(p => p.publish_catalog).length} piezas publicadas de {(data.pieces || []).filter(p => p.status === "Disponible").length} disponibles
-              </div>
-            </Cd>
-            <Cd className="p-4">
-              <h3 className="fd font-semibold text-white mb-3">Marcas y Modelos ({BRANDS.length} marcas)</h3>
-              <div className="flex flex-wrap gap-2">{BRANDS.map(b => <span key={b} className="fb text-sm px-3 py-1.5 rounded-lg" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.1)", color: "var(--cr)" }}>{b} <span className="text-xs" style={{ color: "var(--cd)" }}>({getModels(b).length})</span></span>)}</div>
-            </Cd>
-            {(data.customRefs || []).length > 0 && (
-              <Cd className="p-4">
-                <h3 className="fd font-semibold text-white mb-3">Referencias Custom ({data.customRefs.length})</h3>
-                <div className="space-y-1">{data.customRefs.map(r => <div key={r.id} className="flex items-center gap-3 fb text-sm p-2 rounded-lg" style={{ background: "rgba(255,255,255,.02)" }}><span className="text-white font-semibold">{r.brand} {r.model}</span><span style={{ color: "var(--cd)" }}>{r.ref_number}</span>{r.ai_validated && <Bd text="IA ✓" v="green" />}</div>)}</div>
-              </Cd>
-            )}
-          </div>
-        )}
+        {page === "catalogs" && <CatalogsSection data={data} refresh={refresh} showToast={showToast} db={db} />}
 
         {/* ═══ REPORTS ═══ */}
         {page === "reports" && (
@@ -1645,17 +1751,172 @@ export default function App() {
       {toast && <div className="fixed bottom-4 right-4 z-50 fb text-sm px-4 py-3 rounded-xl shadow-lg au" style={{ background: toast.type === "ok" ? "#166534" : "rgba(251,113,133,.2)", color: toast.type === "ok" ? "var(--gn)" : "var(--rd)" }}>{toast.msg}</div>}
 
       {/* MODALS */}
-      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} /></Md>
-      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} />}</Md>
-      <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} />}</Md>
+      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} /></Md>
+      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} />}</Md>
+      <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} clients={data.clients} onSaveClient={async (c) => { await db.saveClient(c); await refresh(); }} />}</Md>
       <Md open={modal === "trade"} onClose={cm} title={"Trade-out — " + (sel?.name || "")} wide>{sel && <TradeForm piece={sel} allPieces={data.pieces} onSave={hTrade} onClose={cm} />}</Md>
       <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} />}</Md>
-      <Md open={modal === "ct"} onClose={cm} title="Nuevo Corte Mensual">{<CorteForm onSave={async (c) => { try { await db.saveCorte(c); showToast("Corte registrado"); await refresh(); cm(); } catch (e) { alert(e.message); } }} onClose={cm} socios={data.socios} />}</Md>
+      <Md open={modal === "ct"} onClose={cm} title="Nuevo Corte Mensual" wide>{<CorteForm onSave={async (c) => {
+        try {
+          const { _sells, ...corteData } = c;
+          await db.saveCorte(corteData);
+          // If retirar, create withdrawal transactions for each socio
+          if (c.decision === "retirar" && c.utilidad > 0) {
+            for (const s of (data.socios || [])) {
+              const share = c.splits?.[s.id] || 0;
+              if (share > 0) {
+                await db.saveTx({ id: uid(), fecha: td(), tipo: "RETIRO", pieza_id: null, monto: -(share), fondo_id: c.fondo_id || "FIC", descripcion: `Retiro utilidades ${c.periodo} — ${s.name} (${s.participacion}%)`, metodo_pago: "Retiro" });
+              }
+            }
+          }
+          showToast(c.decision === "retirar" ? "Corte cerrado — retiros generados" : "Corte cerrado — utilidades reinvertidas");
+          await refresh(); cm();
+        } catch (e) { alert(e.message); }
+      } } onClose={cm} socios={data.socios} pieces={data.pieces} txs={data.txs} cortes={data.cortes} />}</Md>
     </div>
   );
 }
 
 /* ═══ SMALL FORMS ═══ */
+function CatalogsSection({ data, refresh, showToast, db }) {
+  const [catTab, setCatTab] = useState("proveedores");
+  const [editItem, setEditItem] = useState(null);
+  const [search, setSearch] = useState("");
+
+  const saveSupp = async (s) => { try { await db.saveSupplier(s); showToast("Proveedor guardado"); setEditItem(null); await refresh(); } catch(e) { alert("Error: " + e.message); } };
+  const saveClnt = async (c) => { try { await db.saveClient(c); showToast("Cliente guardado"); setEditItem(null); await refresh(); } catch(e) { alert("Error: " + e.message); } };
+  const delSupp = async (id) => { if (!confirm("¿Eliminar proveedor?")) return; try { await db.delSupplier(id); showToast("Eliminado"); await refresh(); } catch(e) { alert("Error: " + e.message); } };
+  const delClnt = async (id) => { if (!confirm("¿Eliminar cliente?")) return; try { await db.delClient(id); showToast("Eliminado"); await refresh(); } catch(e) { alert("Error: " + e.message); } };
+
+  const suppList = (data.suppliers || []).filter(s => !search || s.name?.toLowerCase().includes(search.toLowerCase()));
+  const clntList = (data.clients || []).filter(c => !search || c.name?.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="space-y-5 au">
+      <h1 className="fd text-2xl md:text-3xl font-bold text-white">Catálogos</h1>
+      {/* Tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {[{id:"proveedores",l:"Proveedores",n:data.suppliers?.length||0},{id:"clientes",l:"Clientes",n:data.clients?.length||0},{id:"marcas",l:"Marcas & Modelos",n:BRANDS.length},{id:"catalogo",l:"Catálogo Público"}].map(t =>
+          <button key={t.id} onClick={() => { setCatTab(t.id); setSearch(""); setEditItem(null); }} className="fb text-sm px-4 py-2 rounded-lg transition-all" style={catTab === t.id ? { background: "rgba(201,169,110,.15)", color: "var(--cr)", fontWeight: 600 } : { background: "rgba(255,255,255,.03)", color: "var(--cd)" }}>{t.l} {t.n != null && <span className="ml-1 text-xs">({t.n})</span>}</button>
+        )}
+      </div>
+
+      {/* ─── PROVEEDORES ─── */}
+      {catTab === "proveedores" && (
+        <Cd className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="fd font-semibold text-white">Proveedores ({suppList.length})</h3>
+            <div className="flex gap-2">
+              <input className="ti" style={{ width: 180, fontSize: 12 }} placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)} />
+              <button onClick={() => setEditItem({ id: "Pid_" + uid().slice(0,8), name: "", type: "Particular", phone: "", email: "", ine: "", notes: "", _new: true })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>+ Nuevo</button>
+            </div>
+          </div>
+          {editItem && editItem.id?.startsWith("Pid") && (
+            <div className="p-3 rounded-xl mb-3" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.12)" }}>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
+                <input className="ti" placeholder="Nombre *" value={editItem.name} onChange={e => setEditItem(p => ({ ...p, name: e.target.value }))} />
+                <select className="ti" value={editItem.type || "Particular"} onChange={e => setEditItem(p => ({ ...p, type: e.target.value }))}>{SUPPLIER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                <input className="ti" placeholder="Teléfono" value={editItem.phone || ""} onChange={e => setEditItem(p => ({ ...p, phone: e.target.value }))} />
+                <input className="ti" placeholder="Email" value={editItem.email || ""} onChange={e => setEditItem(p => ({ ...p, email: e.target.value }))} />
+                <input className="ti" placeholder="INE / Identificación" value={editItem.ine || ""} onChange={e => setEditItem(p => ({ ...p, ine: e.target.value }))} />
+                <input className="ti" placeholder="Notas" value={editItem.notes || ""} onChange={e => setEditItem(p => ({ ...p, notes: e.target.value }))} />
+              </div>
+              <div className="flex gap-2"><BtnP onClick={() => { if (!editItem.name) return alert("Nombre requerido"); const { _new, ...s } = editItem; saveSupp(s); }}>Guardar</BtnP><BtnS onClick={() => setEditItem(null)}>Cancelar</BtnS></div>
+            </div>
+          )}
+          <div className="space-y-1">
+            {suppList.map(s => {
+              const deals = (data.pieces || []).filter(p => p.supplier_id === s.id).length;
+              return (
+              <div key={s.id} className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "rgba(255,255,255,.02)" }}>
+                <div className="w-9 h-9 rounded-full flex items-center justify-center fb text-sm font-bold" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>{(s.name || "?")[0]}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="fb text-sm font-semibold text-white truncate">{s.name} <span className="text-xs font-normal" style={{ color: "var(--cd)" }}>· {s.type || "Particular"}</span></div>
+                  <div className="fb text-xs" style={{ color: "var(--cd)" }}>{[s.phone, s.email].filter(Boolean).join(" · ") || "Sin contacto"}{deals > 0 && ` · ${deals} pieza(s)`}</div>
+                </div>
+                <button onClick={() => setEditItem({ ...s })} className="fb text-xs px-2 py-1 rounded" style={{ color: "var(--cr)" }}>✏️</button>
+                <button onClick={() => delSupp(s.id)} className="fb text-xs px-2 py-1 rounded" style={{ color: "var(--rd)" }}>🗑</button>
+              </div>);
+            })}
+            {suppList.length === 0 && <div className="fb text-sm text-center py-6" style={{ color: "var(--cd)" }}>No hay proveedores registrados</div>}
+          </div>
+        </Cd>
+      )}
+
+      {/* ─── CLIENTES ─── */}
+      {catTab === "clientes" && (
+        <Cd className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="fd font-semibold text-white">Clientes ({clntList.length})</h3>
+            <div className="flex gap-2">
+              <input className="ti" style={{ width: 180, fontSize: 12 }} placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)} />
+              <button onClick={() => setEditItem({ id: "Cid_" + uid().slice(0,8), name: "", phone: "", email: "", ine: "", tier: "Prospecto", notes: "", _new: true })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>+ Nuevo</button>
+            </div>
+          </div>
+          {editItem && editItem.id?.startsWith("Cid") && (
+            <div className="p-3 rounded-xl mb-3" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.12)" }}>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
+                <input className="ti" placeholder="Nombre *" value={editItem.name} onChange={e => setEditItem(p => ({ ...p, name: e.target.value }))} />
+                <select className="ti" value={editItem.tier || "Prospecto"} onChange={e => setEditItem(p => ({ ...p, tier: e.target.value }))}>{CLIENT_TIERS.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                <input className="ti" placeholder="Teléfono" value={editItem.phone || ""} onChange={e => setEditItem(p => ({ ...p, phone: e.target.value }))} />
+                <input className="ti" placeholder="Email" value={editItem.email || ""} onChange={e => setEditItem(p => ({ ...p, email: e.target.value }))} />
+                <input className="ti" placeholder="INE / Identificación" value={editItem.ine || ""} onChange={e => setEditItem(p => ({ ...p, ine: e.target.value }))} />
+                <input className="ti" placeholder="Notas" value={editItem.notes || ""} onChange={e => setEditItem(p => ({ ...p, notes: e.target.value }))} />
+              </div>
+              <div className="flex gap-2"><BtnP onClick={() => { if (!editItem.name) return alert("Nombre requerido"); const { _new, ...c } = editItem; saveClnt(c); }}>Guardar</BtnP><BtnS onClick={() => setEditItem(null)}>Cancelar</BtnS></div>
+            </div>
+          )}
+          <div className="space-y-1">
+            {clntList.map(c => {
+              const buys = (data.pieces || []).filter(p => p.client_id === c.id).length;
+              return (
+              <div key={c.id} className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "rgba(255,255,255,.02)" }}>
+                <div className="w-9 h-9 rounded-full flex items-center justify-center fb text-sm font-bold" style={{ background: "rgba(96,165,250,.12)", color: "var(--bl)" }}>{(c.name || "?")[0]}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="fb text-sm font-semibold text-white truncate">{c.name} <Bd text={c.tier || "Prospecto"} v={c.tier === "VIP" ? "green" : "blue"} /></div>
+                  <div className="fb text-xs" style={{ color: "var(--cd)" }}>{[c.phone, c.email].filter(Boolean).join(" · ") || "Sin contacto"}{buys > 0 && ` · ${buys} compra(s)`}</div>
+                </div>
+                <button onClick={() => setEditItem({ ...c })} className="fb text-xs px-2 py-1 rounded" style={{ color: "var(--cr)" }}>✏️</button>
+                <button onClick={() => delClnt(c.id)} className="fb text-xs px-2 py-1 rounded" style={{ color: "var(--rd)" }}>🗑</button>
+              </div>);
+            })}
+            {clntList.length === 0 && <div className="fb text-sm text-center py-6" style={{ color: "var(--cd)" }}>No hay clientes registrados</div>}
+          </div>
+        </Cd>
+      )}
+
+      {/* ─── MARCAS ─── */}
+      {catTab === "marcas" && (
+        <>
+          <Cd className="p-4">
+            <h3 className="fd font-semibold text-white mb-3">Marcas y Modelos ({BRANDS.length} marcas)</h3>
+            <div className="flex flex-wrap gap-2">{BRANDS.map(b => <span key={b} className="fb text-sm px-3 py-1.5 rounded-lg" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.1)", color: "var(--cr)" }}>{b} <span className="text-xs" style={{ color: "var(--cd)" }}>({getModels(b).length})</span></span>)}</div>
+          </Cd>
+          {(data.customRefs || []).length > 0 && (
+            <Cd className="p-4">
+              <h3 className="fd font-semibold text-white mb-3">Referencias Custom ({data.customRefs.length})</h3>
+              <div className="space-y-1">{data.customRefs.map(r => <div key={r.id} className="flex items-center gap-3 fb text-sm p-2 rounded-lg" style={{ background: "rgba(255,255,255,.02)" }}><span className="text-white font-semibold">{r.brand} {r.model}</span><span style={{ color: "var(--cd)" }}>{r.ref_number}</span>{r.ai_validated && <Bd text="IA ✓" v="green" />}</div>)}</div>
+            </Cd>
+          )}
+        </>
+      )}
+
+      {/* ─── CATALOGO PUBLICO ─── */}
+      {catTab === "catalogo" && (
+        <Cd className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="fd font-semibold text-white">Catálogo Público</h3>
+            <a href="?catalog" target="_blank" className="fb text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}><Ico d={IC.globe} s={14} />Ver catálogo</a>
+          </div>
+          <div className="fb text-sm" style={{ color: "var(--cd)" }}>
+            {(data.pieces || []).filter(p => p.publish_catalog).length} piezas publicadas de {(data.pieces || []).filter(p => p.status === "Disponible").length} disponibles
+          </div>
+        </Cd>
+      )}
+    </div>
+  );
+}
+
 function CapitalForm({ onSave, onClose, socios }) {
   const sl = socios || [];
   const [amt, setAmt] = useState(""); const [desc, setDesc] = useState(""); const [partner, setPartner] = useState(sl[0]?.id || "");
@@ -1667,14 +1928,93 @@ function CapitalForm({ onSave, onClose, socios }) {
   </div>;
 }
 
-function CorteForm({ onSave, onClose, socios }) {
+function CorteForm({ onSave, onClose, socios, pieces, txs, cortes }) {
   const sl = socios || [];
-  const [period, setP] = useState(td().slice(0, 7)); const [label, setL] = useState(""); const [util, setU] = useState(0);
-  const splits = Object.fromEntries(sl.map(s => [s.id, Math.round(util * (Number(s.participacion) / 100))]));
+  const allTxs = txs || [];
+  const allPieces = pieces || [];
+  const existingCortes = cortes || [];
+  const [period, setP] = useState(td().slice(0, 7));
+  const [label, setL] = useState("");
+  const exists = existingCortes.some(c => c.periodo === period);
+
+  const periodSells = useMemo(() => {
+    const [y, m] = period.split("-").map(Number);
+    const start = `${period}-01`;
+    const endDay = new Date(y, m, 0).getDate();
+    const end = `${period}-${String(endDay).padStart(2, "0")}`;
+    return allTxs.filter(t => t.tipo === "SELL" && t.fecha >= start && t.fecha <= end).map(t => {
+      const pc = allPieces.find(p => p.id === t.pieza_id);
+      const cost = pc?.cost || 0;
+      const sale = t.monto || 0;
+      return { txId: t.id, pieza_id: t.pieza_id, name: pc?.name || "—", sku: pc?.sku || "", cost, sale, profit: sale - cost, fecha: t.fecha };
+    });
+  }, [period, allTxs, allPieces]);
+
+  const totalProfit = periodSells.reduce((s, p) => s + p.profit, 0);
+  const totalSales = periodSells.reduce((s, p) => s + p.sale, 0);
+  const totalCost = periodSells.reduce((s, p) => s + p.cost, 0);
+  const splits = Object.fromEntries(sl.map(s => [s.id, Math.round(totalProfit * (Number(s.participacion) / 100))]));
+  const cap = allTxs.filter(t => t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
+
   return <div className="space-y-4">
-    <div className="grid grid-cols-2 gap-3"><Fl label="Periodo" req><input type="month" className="ti" value={period} onChange={e => setP(e.target.value)} /></Fl><Fl label="Etiqueta"><input className="ti" value={label} onChange={e => setL(e.target.value)} /></Fl></div>
-    <Fl label="Utilidad del periodo (MXN)"><input type="number" className="ti" value={util} onChange={e => setU(Number(e.target.value))} /></Fl>
-    {util > 0 && <div className={`grid gap-3 text-center rounded-xl p-3`} style={{ background: "rgba(74,222,128,.06)", gridTemplateColumns: `repeat(${sl.length + 1}, 1fr)` }}><div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Total</span><div className="fd font-bold" style={{ color: "var(--gn)" }}>{fmxn(util)}</div></div>{sl.map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name}</span><div className="fd font-bold text-white">{fmxn(splits[s.id] || 0)}</div></div>)}</div>}
-    <div className="flex gap-3"><BtnP onClick={() => onSave({ id: "C-" + uid().slice(0, 5), periodo: period, label: label || period, utilidad: util, splits, decision: "reinvertir" })}>Cerrar Corte</BtnP><BtnS onClick={onClose}>Cancelar</BtnS></div>
+    <div className="grid grid-cols-2 gap-3">
+      <Fl label="Periodo" req><input type="month" className="ti" value={period} onChange={e => setP(e.target.value)} /></Fl>
+      <Fl label="Etiqueta"><input className="ti" value={label} onChange={e => setL(e.target.value)} placeholder={`Corte ${period}`} /></Fl>
+    </div>
+
+    {exists && <div className="fb text-sm p-3 rounded-xl" style={{ background: "rgba(251,113,133,.08)", color: "var(--rd)" }}>⚠ Ya existe un corte para {period}</div>}
+
+    <div className="rounded-xl p-4" style={{ background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.06)" }}>
+      <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Ventas del Periodo ({periodSells.length})</div>
+      {periodSells.length > 0 ? (<div className="space-y-1">
+        {periodSells.map((s, i) => (
+          <div key={i} className="flex items-center gap-3 p-2 rounded-lg" style={{ background: "rgba(255,255,255,.02)" }}>
+            <div className="flex-1 min-w-0">
+              <div className="fb text-sm font-semibold text-white truncate">{s.sku} — {s.name}</div>
+              <div className="fb text-xs" style={{ color: "var(--cd)" }}>{s.fecha}</div>
+            </div>
+            <div className="text-right">
+              <div className="fb text-xs" style={{ color: "var(--cd)" }}>Costo: {fmxn(s.cost)} → Venta: {fmxn(s.sale)}</div>
+              <div className="fb text-sm font-bold" style={{ color: s.profit >= 0 ? "var(--gn)" : "var(--rd)" }}>{s.profit >= 0 ? "+" : ""}{fmxn(s.profit)}</div>
+            </div>
+          </div>
+        ))}
+        <div className="flex items-center gap-3 p-3 mt-2 rounded-xl" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.1)" }}>
+          <div className="flex-1"><span className="fd font-semibold text-white">Total</span></div>
+          <div className="text-right">
+            <div className="fb text-xs" style={{ color: "var(--cd)" }}>Costo: {fmxn(totalCost)} → Ventas: {fmxn(totalSales)}</div>
+            <div className="fd text-lg font-bold" style={{ color: totalProfit >= 0 ? "var(--gn)" : "var(--rd)" }}>{totalProfit >= 0 ? "+" : ""}{fmxn(totalProfit)}</div>
+          </div>
+        </div>
+      </div>) : (<div className="fb text-sm text-center py-4" style={{ color: "var(--cd)" }}>No hay ventas en este periodo</div>)}
+    </div>
+
+    {totalProfit !== 0 && (<div className="rounded-xl p-4" style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.1)" }}>
+      <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gn)" }}>Distribución {cap > 0 ? `(${((totalProfit / cap) * 100).toFixed(1)}% s/capital)` : ""}</div>
+      <div className={`grid gap-3 text-center`} style={{ gridTemplateColumns: `repeat(${sl.length + 1}, 1fr)` }}>
+        {sl.map(s => (<div key={s.id} className="rounded-xl p-3" style={{ background: `${s.color}11` }}>
+          <div className="fb text-xs" style={{ color: s.color }}>{s.name} {s.participacion}%</div>
+          <div className="fd font-bold text-lg text-white">{fmxn(splits[s.id] || 0)}</div>
+        </div>))}
+        <div className="rounded-xl p-3" style={{ background: "rgba(201,169,110,.06)" }}>
+          <div className="fb text-xs" style={{ color: "var(--gd)" }}>Total</div>
+          <div className="fd font-bold text-lg" style={{ color: "var(--gn)" }}>{fmxn(totalProfit)}</div>
+        </div>
+      </div>
+    </div>)}
+
+    {totalProfit > 0 && !exists && (<div className="grid grid-cols-2 gap-3">
+      <button type="button" onClick={() => onSave({ id: "C-" + uid().slice(0, 5), periodo: period, label: label || `Corte ${period}`, utilidad: totalProfit, splits, decision: "reinvertir", fondo_id: "FIC" })} className="fb p-4 rounded-xl text-center font-semibold transition-all hover:brightness-110" style={{ background: "rgba(96,165,250,.12)", border: "1px solid rgba(96,165,250,.2)", color: "var(--bl)" }}>
+        <div className="text-2xl mb-1">🔄</div><div>Reinvertir</div>
+        <div className="text-xs font-normal mt-1" style={{ color: "var(--cd)" }}>Utilidad se queda en el fondo</div>
+      </button>
+      <button type="button" onClick={() => onSave({ id: "C-" + uid().slice(0, 5), periodo: period, label: label || `Corte ${period}`, utilidad: totalProfit, splits, decision: "retirar", fondo_id: "FIC" })} className="fb p-4 rounded-xl text-center font-semibold transition-all hover:brightness-110" style={{ background: "rgba(74,222,128,.12)", border: "1px solid rgba(74,222,128,.2)", color: "var(--gn)" }}>
+        <div className="text-2xl mb-1">💰</div><div>Retirar Utilidades</div>
+        <div className="text-xs font-normal mt-1" style={{ color: "var(--cd)" }}>Se generan retiros para cada socio</div>
+      </button>
+    </div>)}
+
+    {totalProfit === 0 && !exists && periodSells.length > 0 && (<div className="flex gap-3"><BtnP onClick={() => onSave({ id: "C-" + uid().slice(0, 5), periodo: period, label: label || `Corte ${period}`, utilidad: 0, splits, decision: "reinvertir", fondo_id: "FIC" })}>Cerrar Corte (Sin utilidad)</BtnP><BtnS onClick={onClose}>Cancelar</BtnS></div>)}
+    {(exists || periodSells.length === 0) && <div className="flex gap-3"><BtnS onClick={onClose}>Cerrar</BtnS></div>}
   </div>;
 }
