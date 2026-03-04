@@ -312,18 +312,13 @@ function AiRefValidator({ brand, model, refNum, onResult }) {
     if (!brand || !refNum) return;
     setLoading(true);
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      const { data: { session } } = await sb.auth.getSession();
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/validate-ref`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: `Eres un experto en relojes de lujo. Valida esta referencia:\nMarca: ${brand}\nModelo: ${model || "No especificado"}\nReferencia: ${refNum}\n\nResponde SOLO en JSON con este formato exacto (sin markdown):\n{"valid":true/false,"name":"nombre completo del reloj","year_range":"años de producción","case_mm":"diámetro caja","movement":"calibre","material":"material caja","dial":"color dial","retail_usd":"precio retail aprox USD","notes":"notas relevantes"}` }],
-        }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}`, "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY },
+        body: JSON.stringify({ brand, model, refNum }),
       });
-      const data = await resp.json();
-      const text = data.content?.find(c => c.type === "text")?.text || "";
-      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      const parsed = await resp.json();
       setResult(parsed);
       if (onResult) onResult(parsed);
     } catch (e) {
