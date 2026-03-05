@@ -47,7 +47,7 @@ const stor = {
 /* ═══ DB LAYER ═══ */
 const db = {
   async loadAll() {
-    const [pz, tx, ct, fo, cl, su, st, cr, sc, pr] = await Promise.all([
+    const [pz, tx, ct, fo, cl, su, st, cr, sc, pr, cp] = await Promise.all([
       sb.from("piezas").select("*").order("created_at", { ascending: false }),
       sb.from("transacciones").select("*").order("fecha", { ascending: false }),
       sb.from("cortes").select("*").order("periodo", { ascending: false }),
@@ -58,6 +58,7 @@ const db = {
       sb.from("custom_referencias").select("*"),
       sb.from("socios").select("*").order("participacion", { ascending: false }),
       sb.from("profiles").select("*").order("name"),
+      sb.from("costos_pieza").select("*"),
     ]);
     return {
       pieces: pz.data || [], txs: tx.data || [], cortes: ct.data || [],
@@ -66,6 +67,7 @@ const db = {
       customRefs: cr.data || [],
       socios: sc.data || [],
       profiles: pr.data || [],
+      costos: cp.data || [],
     };
   },
   async loadDocs(entType, entId) {
@@ -91,6 +93,18 @@ const db = {
     const { data: stData } = await sb.from("app_settings").select("*").in("key", ["whatsapp_number", "business_name", "catalog_config"]);
     return { pieces: data || [], fotos: fotos || [], settings: Object.fromEntries((stData || []).map(s => [s.key, s.value])) };
   },
+  async trackContact(piezaId, tipo = "whatsapp") {
+    try { await sb.from("catalog_contactos").insert({ pieza_id: piezaId, tipo }); } catch(e) { console.warn("Track err:", e); }
+  },
+  async loadContactStats() {
+    const { data } = await sb.from("catalog_contactos").select("pieza_id, tipo, created_at");
+    return data || [];
+  },
+  async loadCostos(piezaId) { const { data } = await sb.from("costos_pieza").select("*").eq("pieza_id", piezaId).order("fecha", { ascending: false }); return data || []; },
+  async saveCosto(c) { const { error } = await sb.from("costos_pieza").upsert(c); if (error) throw error; },
+  async delCosto(id) { const { error } = await sb.from("costos_pieza").delete().eq("id", id); if (error) throw error; },
+  async loadAuditLog(limit = 50) { const { data } = await sb.from("audit_log").select("*").order("created_at", { ascending: false }).limit(limit); return data || []; },
+  async loadEdits(piezaId) { const { data } = await sb.from("pieza_edits").select("*").eq("pieza_id", piezaId).order("editado_at", { ascending: false }); return data || []; },
 };
 
 /* ═══ WATCH DATABASE ═══ */
@@ -99,7 +113,7 @@ const WDB = {
   Omega: { "Seamaster 300M":["210.30.42.20.01.001","210.30.42.20.03.001"], "Speedmaster Moonwatch":["310.30.42.50.01.001"], "Aqua Terra":["220.10.41.21.01.001"], Constellation:["131.10.39.20.01.001"] },
   Cartier: { Santos:["WSSA0018","WSSA0029","WSSA0030"], "Santos Dumont":["WGSA0021"], "Tank Française":["WSTA0065"], Panthère:["WSPN0007"], "Ballon Bleu":["WSBB0025"], "Santos Chronograph":["WSSA0060"] },
   Hublot: { "Classic Fusion":["542.NX.1171.RX","511.NX.1171.RX"], "Big Bang":["301.SB.131.RX"] },
-  "Tag Heuer": { Carrera:["CBN2A1B.BA0643","CBS2210.BA0653"], Monaco:["CBL2111.BA0644"], Aquaracer:["WBP201A.BA0632"] },
+  "TAG Heuer": { Carrera:["CBN2A1B.BA0643","CBS2210.BA0653"], Monaco:["CBL2111.BA0644"], Aquaracer:["WBP201A.BA0632"] },
   "Patek Philippe": { Nautilus:["5711/1A-014","5711/1A-010"], Aquanaut:["5167A-001","5168G-001"], Calatrava:["5227G-001"] },
   "Audemars Piguet": { "Royal Oak":["15500ST.OO.1220ST.01","15510ST.OO.1320ST.01"], "Royal Oak Offshore":["26405CE.OO.A002CA.01"] },
   Bulgari: { Octo:["103534","103297"], "Octo Finissimo":["103431"], Serpenti:["102919"] },
@@ -116,11 +130,12 @@ const getRefs = (b, m) => WDB[b]?.[m] || [];
 /* ═══ CONSTANTS ═══ */
 const CONDS = ["Nuevo/Sin uso","Como nuevo","Mint","Excelente","Muy bueno","Bueno","Regular","Vintage","Partes"];
 const AUTHS = [{c:"NONE",n:"Sin autenticar",l:0},{c:"VISUAL",n:"Inspección visual",l:1},{c:"SERIAL",n:"Serial verificado",l:2},{c:"MOVEMENT",n:"Movimiento abierto",l:3},{c:"THIRD",n:"Tercero certificado",l:4},{c:"BRAND",n:"Certificado de marca",l:5}];
-const PAYS = ["SPEI","Efectivo MXN","Efectivo USD","Wire USD","Trade","Trade+Cash","Escrow","Tarjeta"];
+const PAYS = ["Efectivo MXN","SPEI","Efectivo USD","Wire USD","Trade","Trade+Cash","Escrow","Tarjeta"];
 const ETYPES = [{v:"adquisicion",l:"Adquisición"},{v:"trade_in",l:"Trade-in"},{v:"consignacion",l:"Consignación"}];
 const DIAL_COLORS = ["Negro","Blanco","Azul","Verde","Gris","Plata","Champagne","Oro Rosa","Marrón","Burdeo","Rojo","Amarillo","Naranja","Madre Perla","Skeleton","Otro"];
 const BEZEL_TYPES = ["Liso","Fluted","Giratorio Uni","Giratorio Bi","Tachymeter","GMT","Diamantes","Cerámico","Count-up","Ninguno","Otro"];
 const STRAP_TYPES = ["Acero Oyster","Acero Jubilee","Acero President","Acero Integrado","Caucho","Piel Cocodrilo","Piel Becerro","NATO/Nylon","Titanio","Oro","Cerámica","Otro"];
+const CASE_SIZES = ["24","26","28","30","31","33","34","36","37","38","39","40","41","42","43","44","45","46","47","48","50"];
 const EXIT_TYPES = [{v:"venta",l:"Venta"},{v:"trade_out",l:"Trade Out"},{v:"retorno_consignacion",l:"Retorno consignación"}];
 const ROLE_OPTS = ["superuser","director","operador","inversionista"];
 const PERMS = {
@@ -507,6 +522,9 @@ function PublicCatalog() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [photoIdx, setPhotoIdx] = useState(0);
+  const [brandFilter, setBrandFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sizeFilter, setSizeFilter] = useState("");
 
   useEffect(() => {
     db.loadCatalogPublic().then(d => { setData(d); setLoading(false); }).catch(() => setLoading(false));
@@ -527,29 +545,52 @@ function PublicCatalog() {
   const bizName = data?.settings?.business_name?.replace(/"/g, "") || "The Wrist Room";
   const catCfg = data?.settings?.catalog_config || {};
   const showPrices = catCfg.show_prices !== false;
+  const brands = [...new Set(pieces.map(p => p.brand).filter(Boolean))].sort();
 
   const getFotos = (pid) => fotos.filter(f => f.pieza_id === pid).sort((a, b) => {
     const order = ["dial", "full", "bisel", "corona", "tapa", "bracelet"];
     return order.indexOf(a.posicion) - order.indexOf(b.posicion);
   });
 
-  const waLink = (piece) => {
-    const msg = encodeURIComponent(`Hola, me interesa el ${piece.name || ""} (SKU: ${piece.sku || ""}). ¿Está disponible?`);
-    return `https://wa.me/${waNum}?text=${msg}`;
+  const getWa = (piece) => piece.whatsapp_pieza || waNum;
+
+  const trackAndOpen = (piece, url) => {
+    db.trackContact(piece.id, "whatsapp");
+    window.open(url, "_blank");
   };
 
+  const waLink = (piece) => {
+    const wa = getWa(piece);
+    const ref = piece.es_referenciada ? " (Pieza Referenciada)" : "";
+    const msg = encodeURIComponent(`Hola, me interesa el ${piece.name || ""} (SKU: ${piece.sku || ""})${ref}. ¿Está disponible?`);
+    return `https://wa.me/${wa}?text=${msg}`;
+  };
+
+  const filtered = pieces.filter(p => {
+    if (brandFilter && p.brand !== brandFilter) return false;
+    if (statusFilter === "available" && p.status !== "Disponible") return false;
+    if (statusFilter === "sold" && p.status === "Disponible") return false;
+    if (sizeFilter && p.case_size !== sizeFilter) return false;
+    return true;
+  }).sort((a, b) => (a.status === "Disponible" ? 0 : 1) - (b.status === "Disponible" ? 0 : 1));
+
+  const availCount = pieces.filter(p => p.status === "Disponible").length;
+  const soldCount = pieces.filter(p => p.status !== "Disponible").length;
+  const sizes = [...new Set(pieces.map(p => p.case_size).filter(Boolean))].sort((a, b) => Number(a) - Number(b));
+
+  /* ═══ DETAIL VIEW ═══ */
   if (selected) {
     const p = selected;
     const pFotos = getFotos(p.id);
+    const wa = getWa(p);
     return (
       <div className="min-h-screen pb-24" style={{ background: "var(--nv)" }}>
-        {/* Header */}
         <div className="sticky top-0 z-20 flex items-center gap-3 px-4 py-3" style={{ background: "rgba(11,29,51,.95)", backdropFilter: "blur(10px)", borderBottom: "1px solid rgba(201,169,110,.1)" }}>
           <button onClick={() => { setSelected(null); setPhotoIdx(0); }} className="p-2 rounded-xl" style={{ color: "var(--gd)" }}>←</button>
           <div className="flex-1 truncate"><span className="fd text-sm font-semibold text-white">{p.name}</span></div>
+          {p.es_referenciada && <span className="fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(201,169,110,.15)", color: "var(--gd)" }}>🤝 Referenciada</span>}
         </div>
 
-        {/* Photo Gallery */}
         {pFotos.length > 0 ? (
           <div className="relative" style={{ aspectRatio: "1" }}>
             <img src={pFotos[photoIdx % pFotos.length]?.url} alt="" className="w-full h-full object-cover" />
@@ -569,7 +610,6 @@ function PublicCatalog() {
           </div>
         )}
 
-        {/* Info */}
         <div className="p-4 space-y-4">
           <div>
             <div className="fb text-xs uppercase tracking-widest mb-1" style={{ color: "var(--gk)" }}>{p.brand}</div>
@@ -586,6 +626,13 @@ function PublicCatalog() {
               <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Esta pieza ya no está disponible</div>
             </div>
           )}
+          {p.es_referenciada && (
+            <div className="rounded-xl p-3" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.12)" }}>
+              <div className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gd)" }}>🤝 Pieza Referenciada</div>
+              {p.referenciada_por && <div className="fb text-sm mt-1 text-white">Comercializado por: <strong>{p.referenciada_por}</strong></div>}
+              <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Esta pieza se encuentra en resguardo del comercializador. TWR facilita la vinculación.</div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             {p.condition && <div className="p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)" }}><div className="fb text-xs" style={{ color: "var(--cd)" }}>Condición</div><div className="fb text-sm font-semibold text-white">{p.condition}</div></div>}
             {p.auth_level && p.auth_level !== "NONE" && <div className="p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)" }}><div className="fb text-xs" style={{ color: "var(--cd)" }}>Autenticación</div><div className="fb text-sm font-semibold text-white">{AUTHS.find(a => a.c === p.auth_level)?.n || p.auth_level}</div></div>}
@@ -598,21 +645,20 @@ function PublicCatalog() {
           {p.sku && <div className="fb text-xs" style={{ color: "rgba(255,255,255,.2)" }}>SKU: {p.sku}</div>}
         </div>
 
-        {/* WhatsApp CTA */}
-        {waNum && (
+        {wa && (
           <div className="fixed bottom-0 left-0 right-0 p-4" style={{ background: "linear-gradient(transparent, rgba(11,29,51,.95) 30%)" }}>
             {p.status === "Disponible" ? (
-              <a href={waLink(p)} target="_blank" rel="noopener"
+              <button onClick={() => trackAndOpen(p, waLink(p))}
                 className="fb flex items-center justify-center gap-3 w-full py-4 rounded-2xl text-white font-bold text-base"
                 style={{ background: "#25D366" }}>
                 <Ico d={IC.wa} s={22} />Consultar por WhatsApp
-              </a>
+              </button>
             ) : (
-              <a href={`https://wa.me/${waNum}?text=${encodeURIComponent(`Hola, vi que el ${p.name} (SKU: ${p.sku}) ya fue vendido. ¿Tienen algo similar disponible?`)}`} target="_blank" rel="noopener"
+              <button onClick={() => trackAndOpen(p, `https://wa.me/${waNum}?text=${encodeURIComponent(`Hola, vi que el ${p.name} (SKU: ${p.sku}) ya fue vendido. ¿Tienen algo similar disponible?`)}`)}
                 className="fb flex items-center justify-center gap-3 w-full py-4 rounded-2xl text-white font-bold text-base"
                 style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.15)" }}>
                 <Ico d={IC.wa} s={22} />¿Algo similar disponible?
-              </a>
+              </button>
             )}
           </div>
         )}
@@ -620,48 +666,102 @@ function PublicCatalog() {
     );
   }
 
+  /* ═══ GRID VIEW ═══ */
   return (
-    <div className="min-h-screen pb-8" style={{ background: "var(--nv)" }}>
-      {/* Header */}
-      <div className="sticky top-0 z-20 px-4 py-4" style={{ background: "rgba(11,29,51,.95)", backdropFilter: "blur(10px)", borderBottom: "1px solid rgba(201,169,110,.1)" }}>
-        <div className="text-center">
-          <div className="fd text-xl font-bold text-white tracking-tight">{bizName}</div>
-          <div className="fb text-xs mt-0.5" style={{ color: "var(--gk)" }}>{pieces.filter(p => p.status === "Disponible").length} disponible{pieces.filter(p => p.status === "Disponible").length !== 1 ? "s" : ""} · {pieces.filter(p => p.status !== "Disponible").length} vendida{pieces.filter(p => p.status !== "Disponible").length !== 1 ? "s" : ""}</div>
+    <div className="min-h-screen flex flex-col" style={{ background: "var(--nv)" }}>
+      {/* ═══ HERO HEADER ═══ */}
+      <div className="text-center px-4 pt-8 pb-4" style={{ background: "linear-gradient(180deg, rgba(201,169,110,.08) 0%, transparent 100%)" }}>
+        <div className="fd text-3xl md:text-4xl font-bold text-white tracking-tight">{bizName}</div>
+        <div className="fb text-sm mt-2" style={{ color: "var(--cd)", maxWidth: 480, margin: "0 auto" }}>
+          Relojes de lujo autenticados. Cada pieza verificada, documentada y respaldada.
+        </div>
+        <div className="flex items-center justify-center gap-4 mt-3">
+          <div className="fb text-xs px-3 py-1.5 rounded-full" style={{ background: "rgba(74,222,128,.1)", color: "var(--gn)" }}>{availCount} disponible{availCount !== 1 ? "s" : ""}</div>
+          {soldCount > 0 && <div className="fb text-xs px-3 py-1.5 rounded-full" style={{ background: "rgba(251,113,133,.08)", color: "#FB7185" }}>{soldCount} vendida{soldCount !== 1 ? "s" : ""}</div>}
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="grid grid-cols-2 gap-2 p-2 md:grid-cols-3 lg:grid-cols-4 md:gap-4 md:p-4">
-        {[...pieces].sort((a, b) => (a.status === "Disponible" ? 0 : 1) - (b.status === "Disponible" ? 0 : 1)).map(p => {
-          const pFotos = getFotos(p.id);
-          const mainFoto = pFotos[0];
-          const sold = p.status !== "Disponible";
-          return (
-            <button key={p.id} onClick={() => setSelected(p)} className="text-left rounded-2xl overflow-hidden transition-all hover:scale-[1.02] active:scale-[.98]" style={{ background: "var(--n2)", border: "1px solid rgba(255,255,255,.06)", opacity: sold ? .7 : 1 }}>
-              <div className="relative" style={{ aspectRatio: "1" }}>
-                {mainFoto ? <img src={mainFoto.url} alt={p.name} className="w-full h-full object-cover" style={sold ? { filter: "grayscale(.4)" } : {}} /> : <div className="w-full h-full flex items-center justify-center" style={{ background: "var(--ns)" }}><span className="text-4xl opacity-20">⌚</span></div>}
-                {sold && <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,.45)" }}><span className="fb text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg" style={{ background: "rgba(251,113,133,.2)", color: "#FB7185", border: "1px solid rgba(251,113,133,.3)" }}>Vendido</span></div>}
-                {!sold && pFotos.length > 1 && <div className="absolute top-2 right-2 fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(0,0,0,.6)", color: "white" }}>{pFotos.length} 📷</div>}
-              </div>
-              <div className="p-3">
-                <div className="fb text-xs" style={{ color: "var(--gk)" }}>{p.brand}</div>
-                <div className="fb text-sm font-semibold text-white truncate">{p.model || p.name}</div>
-                {showPrices && !sold && p.price_asked > 0 && <div className="fd text-base font-bold mt-1" style={{ color: "var(--gd)" }}>{fmxn(p.price_asked)}</div>}
-                {sold && showPrices && p.price_dealer > 0 && <div className="fd text-base font-bold mt-1" style={{ color: "#FB7185" }}><span className="line-through opacity-60">{fmxn(p.price_asked)}</span> {fmxn(p.price_dealer)}</div>}
-                {sold && !(showPrices && p.price_dealer > 0) && <div className="fb text-xs font-bold mt-1" style={{ color: "#FB7185" }}>VENDIDO</div>}
-              </div>
-            </button>
-          );
-        })}
+      {/* ═══ FILTERS ═══ */}
+      <div className="sticky top-0 z-20 px-3 py-3" style={{ background: "rgba(11,29,51,.97)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(201,169,110,.08)" }}>
+        <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+          <select className="fb text-xs px-3 py-2 rounded-xl shrink-0" value={brandFilter} onChange={e => setBrandFilter(e.target.value)}
+            style={{ background: brandFilter ? "rgba(201,169,110,.15)" : "rgba(255,255,255,.06)", color: brandFilter ? "var(--cr)" : "var(--cd)", border: "1px solid rgba(255,255,255,.08)" }}>
+            <option value="">Todas las marcas</option>
+            {brands.map(b => <option key={b} value={b}>{b}</option>)}
+          </select>
+          <select className="fb text-xs px-3 py-2 rounded-xl shrink-0" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            style={{ background: statusFilter !== "all" ? "rgba(201,169,110,.15)" : "rgba(255,255,255,.06)", color: statusFilter !== "all" ? "var(--cr)" : "var(--cd)", border: "1px solid rgba(255,255,255,.08)" }}>
+            <option value="all">Todas</option>
+            <option value="available">Disponibles</option>
+            <option value="sold">Vendidas</option>
+          </select>
+          {sizes.length > 1 && <select className="fb text-xs px-3 py-2 rounded-xl shrink-0" value={sizeFilter} onChange={e => setSizeFilter(e.target.value)}
+            style={{ background: sizeFilter ? "rgba(201,169,110,.15)" : "rgba(255,255,255,.06)", color: sizeFilter ? "var(--cr)" : "var(--cd)", border: "1px solid rgba(255,255,255,.08)" }}>
+            <option value="">Todos los tamaños</option>
+            {sizes.map(s => <option key={s} value={s}>{s}mm</option>)}
+          </select>}
+          {(brandFilter || statusFilter !== "all" || sizeFilter) && (
+            <button onClick={() => { setBrandFilter(""); setStatusFilter("all"); setSizeFilter(""); }} className="fb text-xs px-3 py-2 rounded-xl shrink-0" style={{ color: "var(--rd)", background: "rgba(251,113,133,.08)" }}>✕ Limpiar</button>
+          )}
+        </div>
+        {filtered.length !== pieces.length && <div className="fb text-xs mt-1 text-center" style={{ color: "var(--cd)" }}>{filtered.length} de {pieces.length} piezas</div>}
       </div>
 
-      {pieces.length === 0 && (
-        <div className="text-center py-20">
-          <div className="text-5xl mb-4 opacity-30">⌚</div>
-          <div className="fd text-xl font-semibold text-white">Próximamente</div>
-          <div className="fb text-sm mt-2" style={{ color: "var(--cd)" }}>Nuevas piezas en camino</div>
+      {/* ═══ GRID ═══ */}
+      <div className="flex-1">
+        <div className="grid grid-cols-2 gap-2 p-2 md:grid-cols-3 lg:grid-cols-4 md:gap-4 md:p-4">
+          {filtered.map(p => {
+            const pFotos = getFotos(p.id);
+            const mainFoto = pFotos[0];
+            const sold = p.status !== "Disponible";
+            return (
+              <button key={p.id} onClick={() => setSelected(p)} className="text-left rounded-2xl overflow-hidden transition-all hover:scale-[1.02] active:scale-[.98]" style={{ background: "var(--n2)", border: "1px solid rgba(255,255,255,.06)", opacity: sold ? .7 : 1 }}>
+                <div className="relative" style={{ aspectRatio: "1" }}>
+                  {mainFoto ? <img src={mainFoto.url} alt={p.name} className="w-full h-full object-cover" style={sold ? { filter: "grayscale(.4)" } : {}} /> : <div className="w-full h-full flex items-center justify-center" style={{ background: "var(--ns)" }}><span className="text-4xl opacity-20">⌚</span></div>}
+                  {sold && <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,.45)" }}><span className="fb text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg" style={{ background: "rgba(251,113,133,.2)", color: "#FB7185", border: "1px solid rgba(251,113,133,.3)" }}>Vendido</span></div>}
+                  {!sold && pFotos.length > 1 && <div className="absolute top-2 right-2 fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(0,0,0,.6)", color: "white" }}>{pFotos.length} 📷</div>}
+                  {p.es_referenciada && !sold && <div className="absolute top-2 left-2 fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(201,169,110,.85)", color: "var(--nv)" }}>🤝</div>}
+                </div>
+                <div className="p-3">
+                  <div className="fb text-xs" style={{ color: "var(--gk)" }}>{p.brand}{p.case_size ? ` · ${p.case_size}mm` : ""}</div>
+                  <div className="fb text-sm font-semibold text-white truncate">{p.model || p.name}</div>
+                  {showPrices && !sold && p.price_asked > 0 && <div className="fd text-base font-bold mt-1" style={{ color: "var(--gd)" }}>{fmxn(p.price_asked)}</div>}
+                  {sold && showPrices && p.price_dealer > 0 && <div className="fd text-base font-bold mt-1" style={{ color: "#FB7185" }}><span className="line-through opacity-60">{fmxn(p.price_asked)}</span> {fmxn(p.price_dealer)}</div>}
+                  {sold && !(showPrices && p.price_dealer > 0) && <div className="fb text-xs font-bold mt-1" style={{ color: "#FB7185" }}>VENDIDO</div>}
+                </div>
+              </button>
+            );
+          })}
         </div>
-      )}
+
+        {filtered.length === 0 && (
+          <div className="text-center py-20">
+            <div className="text-5xl mb-4 opacity-30">⌚</div>
+            <div className="fd text-xl font-semibold text-white">{pieces.length === 0 ? "Próximamente" : "Sin resultados"}</div>
+            <div className="fb text-sm mt-2" style={{ color: "var(--cd)" }}>{pieces.length === 0 ? "Nuevas piezas en camino" : "Intenta con otros filtros"}</div>
+          </div>
+        )}
+      </div>
+
+      {/* ═══ FOOTER ═══ */}
+      <footer className="mt-8 px-4 pb-6 pt-6" style={{ borderTop: "1px solid rgba(201,169,110,.08)" }}>
+        <div className="max-w-lg mx-auto text-center space-y-4">
+          <div className="fd text-lg font-bold" style={{ color: "var(--gd)" }}>{bizName}</div>
+          <div className="fb text-xs leading-relaxed" style={{ color: "var(--cd)" }}>
+            Todas las piezas publicadas han sido inspeccionadas y documentadas. Las piezas marcadas como
+            <span style={{ color: "var(--gd)" }}> "Referenciadas" </span>
+            se encuentran en resguardo de su comercializador original. {bizName} actúa únicamente como intermediario
+            facilitando la vinculación entre compradores y vendedores, sin asumir responsabilidad sobre el estado,
+            autenticidad o condiciones de dichas piezas más allá de su labor de intermediación.
+          </div>
+          <div className="flex items-center justify-center gap-4 fb text-xs" style={{ color: "rgba(255,255,255,.25)" }}>
+            <span>Términos y Condiciones</span>
+            <span>·</span>
+            <span>Aviso de Privacidad</span>
+          </div>
+          <div className="fb text-xs" style={{ color: "rgba(255,255,255,.15)" }}>© {new Date().getFullYear()} {bizName}. Todos los derechos reservados. Mérida, Yucatán, México.</div>
+        </div>
+      </footer>
 
       {/* WhatsApp float */}
       {waNum && (
@@ -785,9 +885,9 @@ function LoginScreen({ onLogin }) {
 /* ═══════════════════════════════════════════════════════════════════
    PIECE FORM — Full form with photos, docs, custom refs
    ═══════════════════════════════════════════════════════════════════ */
-function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier }) {
+function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier, userRole }) {
   const autoSku = piece?.sku || genSku(allPieces);
-  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "" };
+  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "", metodo_pago: "Efectivo MXN", whatsapp_pieza: "", es_referenciada: false, referenciada_por: "", referenciada_comision: 0 };
   const [f, sF] = useState(piece ? { ...blank, ...piece } : blank);
   const [localFotos, setLocalFotos] = useState(fotosProp || []);
   const [combinedFin, setCombinedFin] = useState(false);
@@ -799,11 +899,37 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const autoName = (b, m) => [b, m].filter(Boolean).join(" ");
 
+  const [costosData, setCostosData] = useState([]);
+  const [newCosto, setNewCosto] = useState(null);
+  useEffect(() => { if (piece?.id) db.loadCostos(piece.id).then(setCostosData); }, [piece?.id]);
+  const tiposCosto = [
+    { id: "TC01", n: "Envío / Flete de Entrada", i: "📦", cat: "pre" },
+    { id: "TC02", n: "Autenticación", i: "🔍", cat: "pre" },
+    { id: "TC03", n: "Reparación / Servicio", i: "🔧", cat: "pre" },
+    { id: "TC04", n: "Mantenimiento / Pulido", i: "⚙️", cat: "pre" },
+    { id: "TC05", n: "Seguro de Transporte", i: "🛡️", cat: "pre" },
+    { id: "TC06", n: "Almacenaje / Bóveda", i: "🏪", cat: "pre" },
+    { id: "TC07", n: "Fotografía Profesional", i: "📸", cat: "pre" },
+    { id: "TC10", n: "Envío / Flete de Salida", i: "🚚", cat: "venta" },
+    { id: "TC11", n: "Comisión de Venta", i: "💼", cat: "venta" },
+    { id: "TC12", n: "Comisión Plataforma / Referido", i: "🤝", cat: "venta" },
+    { id: "TC13", n: "Empaque / Presentación", i: "🎁", cat: "venta" },
+    { id: "TC14", n: "Gastos Notariales / Legales", i: "⚖️", cat: "venta" },
+    { id: "TC15", n: "Comisión Bancaria", i: "🏦", cat: "venta" },
+    { id: "TC16", n: "Descuento / Ajuste", i: "🏷️", cat: "venta" },
+    { id: "TC20", n: "Viaje / Traslado", i: "✈️", cat: "gral" },
+    { id: "TC21", n: "Certificado de Garantía", i: "📜", cat: "gral" },
+    { id: "TC22", n: "Impuestos / Aranceles", i: "🏛️", cat: "gral" },
+    { id: "TC99", n: "Otros", i: "📋", cat: "gral" },
+  ];
+  const totalCostos = costosData.reduce((s, c) => s + (Number(c.monto) || 0), 0);
+
   const TABS = [
     { id: "id", l: "Reloj", icon: "🔍" },
     { id: "detail", l: "Detalles", icon: "📋" },
     { id: "photos", l: "Fotos", icon: "📸", count: localFotos.filter(ft => !ft.deleted_at).length },
     { id: "money", l: "Adquisición", icon: "💰" },
+    ...(piece ? [{ id: "costos", l: "Gastos", icon: "🧾", count: costosData.length }] : []),
   ];
 
   return (
@@ -854,7 +980,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Fl label="Color Dial"><select className="ti" value={f.dial_color || ""} onChange={e => u("dial_color", e.target.value)}><option value="">—</option>{DIAL_COLORS.map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
             <Fl label="Bisel"><select className="ti" value={f.bezel_type || ""} onChange={e => u("bezel_type", e.target.value)}><option value="">—</option>{BEZEL_TYPES.map(b => <option key={b} value={b}>{b}</option>)}</select></Fl>
-            <Fl label="Caja (mm)"><input className="ti" value={f.case_size || ""} onChange={e => u("case_size", e.target.value)} placeholder="41" /></Fl>
+            <Fl label="Caja (mm)"><select className="ti" value={f.case_size || ""} onChange={e => u("case_size", e.target.value)}><option value="">—</option>{CASE_SIZES.map(s => <option key={s} value={s}>{s}mm</option>)}</select></Fl>
             <Fl label="Correa / Brazalete"><select className="ti" value={f.strap_type || ""} onChange={e => u("strap_type", e.target.value)}><option value="">—</option>{STRAP_TYPES.map(s => <option key={s} value={s}>{s}</option>)}</select></Fl>
           </div>
           <div className="grid grid-cols-3 gap-3">
@@ -871,13 +997,37 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
               <span className="fb text-sm text-white">Caja</span>
             </label>
           </div>
-          <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+
+          {/* Catalog + Referenciada */}
+          <div className="rounded-xl p-4 space-y-3" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={f.publish_catalog || false} onChange={e => u("publish_catalog", e.target.checked)} className="w-4 h-4 rounded" />
               <span className="fb text-sm font-medium text-white">Publicar en catálogo público</span>
             </label>
+            {f.publish_catalog && <Fl label="Descripción para catálogo"><textarea className="ti" rows={2} value={f.catalog_description || ""} onChange={e => u("catalog_description", e.target.value)} placeholder="Descripción visible en el catálogo público..." /></Fl>}
+            {f.publish_catalog && <Fl label="WhatsApp de contacto (esta pieza)" hint="Si se deja vacío, se usa el número general de TWR">
+              <input className="ti" value={f.whatsapp_pieza || ""} onChange={e => u("whatsapp_pieza", e.target.value)} placeholder="5219991234567" />
+            </Fl>}
+
+            {/* Referenciada — solo superuser / director */}
+            {(userRole === "superuser" || userRole === "director") && (
+              <>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,.06)", margin: "12px 0" }} />
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={f.es_referenciada || false} onChange={e => { u("es_referenciada", e.target.checked); if (!e.target.checked) { u("referenciada_por", ""); u("referenciada_comision", 0); } }} className="w-4 h-4 rounded" />
+                  <span className="fb text-sm font-medium" style={{ color: "var(--gd)" }}>🤝 Pieza Referenciada</span>
+                  <span className="fb text-xs" style={{ color: "var(--cd)" }}>— En resguardo de un tercero</span>
+                </label>
+                {f.es_referenciada && (
+                  <div className="grid grid-cols-2 gap-3 mt-2">
+                    <Fl label="Comercializado por" req><input className="ti" value={f.referenciada_por || ""} onChange={e => u("referenciada_por", e.target.value)} placeholder="Nombre del colaborador" /></Fl>
+                    <Fl label="Comisión TWR %" hint="Porcentaje que TWR cobra por vinculación"><input type="number" className="ti" value={f.referenciada_comision || ""} onChange={e => u("referenciada_comision", Number(e.target.value))} placeholder="5" /></Fl>
+                  </div>
+                )}
+              </>
+            )}
           </div>
-          {f.publish_catalog && <Fl label="Descripción para catálogo"><textarea className="ti" rows={2} value={f.catalog_description || ""} onChange={e => u("catalog_description", e.target.value)} placeholder="Descripción visible en el catálogo público..." /></Fl>}
+
           <Fl label="Notas internas"><textarea className="ti" rows={2} value={f.notes || ""} onChange={e => u("notes", e.target.value)} /></Fl>
         </div>
       )}
@@ -967,9 +1117,10 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Fl label="Motivo de Entrada" req><select className="ti" value={f.entry_type} onChange={e => u("entry_type", e.target.value)}>{ETYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Fl>
             <Fl label="Fecha Entrada" req><input type="date" className="ti" value={f.entry_date} onChange={e => u("entry_date", e.target.value)} /></Fl>
+            <Fl label="Método de Pago"><select className="ti" value={f.metodo_pago || "Efectivo MXN"} onChange={e => u("metodo_pago", e.target.value)}>{PAYS.filter(p => p !== "Trade" && p !== "Trade+Cash").map(p => <option key={p} value={p}>{p}</option>)}</select></Fl>
           </div>
 
           {/* Pricing */}
@@ -987,12 +1138,111 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
         </div>
       )}
 
+      {/* ═══ TAB: GASTOS OPERATIVOS ═══ */}
+      {tab === "costos" && piece && (
+        <div className="space-y-4 au">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gk)" }}>Gastos de {piece.name}</span>
+              {totalCostos > 0 && <div className="fb text-xs mt-1" style={{ color: "var(--rd)" }}>Total gastos: {fmxn(totalCostos)} · Costo real: {fmxn((f.cost || 0) + totalCostos)}</div>}
+            </div>
+            {!newCosto && <button type="button" onClick={() => setNewCosto({ tipo: "TC1", monto: "", fecha: td(), descripcion: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>+ Agregar Gasto</button>}
+          </div>
+          {newCosto && (
+            <div className="rounded-xl p-4 space-y-3" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.12)" }}>
+              <div className="grid grid-cols-2 gap-3">
+                <Fl label="Tipo de Gasto" req>
+                  <select className="ti" value={newCosto.tipo} onChange={e => setNewCosto(p => ({ ...p, tipo: e.target.value }))}>
+                    <optgroup label="── Pre-venta / Operación ──">
+                      {tiposCosto.filter(t => t.cat === "pre").map(t => <option key={t.id} value={t.id}>{t.i} {t.n}</option>)}
+                    </optgroup>
+                    <optgroup label="── Gastos de Venta ──">
+                      {tiposCosto.filter(t => t.cat === "venta").map(t => <option key={t.id} value={t.id}>{t.i} {t.n}</option>)}
+                    </optgroup>
+                    <optgroup label="── Generales ──">
+                      {tiposCosto.filter(t => t.cat === "gral").map(t => <option key={t.id} value={t.id}>{t.i} {t.n}</option>)}
+                    </optgroup>
+                  </select>
+                </Fl>
+                <Fl label="Monto (MXN)" req><input type="number" className="ti" value={newCosto.monto} onChange={e => setNewCosto(p => ({ ...p, monto: e.target.value }))} /></Fl>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Fl label="Fecha"><input type="date" className="ti" value={newCosto.fecha} onChange={e => setNewCosto(p => ({ ...p, fecha: e.target.value }))} /></Fl>
+                <Fl label="Descripción"><input className="ti" value={newCosto.descripcion} onChange={e => setNewCosto(p => ({ ...p, descripcion: e.target.value }))} placeholder="Detalle opcional" /></Fl>
+              </div>
+              <div className="flex gap-2">
+                <BtnP onClick={async () => {
+                  if (!newCosto.monto) return alert("Monto requerido");
+                  try {
+                    await db.saveCosto({ id: "CX-" + uid().slice(0, 8), pieza_id: piece.id, tipo: newCosto.tipo, fecha: newCosto.fecha, monto: Number(newCosto.monto), descripcion: newCosto.descripcion });
+                    setCostosData(await db.loadCostos(piece.id));
+                    setNewCosto(null);
+                  } catch (e) { alert("Error: " + e.message); }
+                }}>Guardar Gasto</BtnP>
+                <BtnS onClick={() => setNewCosto(null)}>Cancelar</BtnS>
+              </div>
+            </div>
+          )}
+          {costosData.length > 0 ? (
+            <div className="space-y-2">
+              {costosData.map(c => {
+                const tc = tiposCosto.find(t => t.id === c.tipo);
+                return (
+                  <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+                    <span className="text-lg">{tc?.i || "📋"}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="fb text-sm font-semibold text-white">{tc?.n || c.tipo}</div>
+                      <div className="fb text-xs" style={{ color: "var(--cd)" }}>{c.fecha}{c.descripcion ? ` — ${c.descripcion}` : ""}</div>
+                    </div>
+                    <div className="fd font-bold text-sm" style={{ color: "var(--rd)" }}>{fmxn(c.monto)}</div>
+                    <button type="button" onClick={async () => {
+                      if (!confirm("¿Eliminar este gasto?")) return;
+                      try { await db.delCosto(c.id); setCostosData(await db.loadCostos(piece.id)); } catch (e) { alert("Error: " + e.message); }
+                    }} className="fb text-xs" style={{ color: "var(--rd)" }}>🗑</button>
+                  </div>
+                );
+              })}
+              <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(251,113,133,.06)", border: "1px solid rgba(251,113,133,.1)" }}>
+                <span className="text-lg">💸</span>
+                <div className="flex-1"><span className="fb text-sm font-semibold text-white">Total Gastos Operativos</span></div>
+                <div className="fd font-bold" style={{ color: "var(--rd)" }}>{fmxn(totalCostos)}</div>
+              </div>
+              {(() => {
+                const preCostos = costosData.filter(c => tiposCosto.find(t => t.id === c.tipo)?.cat === "pre").reduce((s, c) => s + (Number(c.monto) || 0), 0);
+                const ventaCostos = costosData.filter(c => tiposCosto.find(t => t.id === c.tipo)?.cat === "venta").reduce((s, c) => s + (Number(c.monto) || 0), 0);
+                return (<div className="grid grid-cols-2 gap-2">
+                  <div className="flex items-center gap-2 p-2 rounded-lg" style={{ background: "rgba(96,165,250,.06)" }}>
+                    <span className="fb text-xs" style={{ color: "var(--bl)" }}>Pre-venta</span>
+                    <span className="fb text-xs font-bold ml-auto" style={{ color: "var(--bl)" }}>{fmxn(preCostos)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 rounded-lg" style={{ background: "rgba(251,113,133,.06)" }}>
+                    <span className="fb text-xs" style={{ color: "#FB7185" }}>De venta</span>
+                    <span className="fb text-xs font-bold ml-auto" style={{ color: "#FB7185" }}>{fmxn(ventaCostos)}</span>
+                  </div>
+                </div>);
+              })()}
+              <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.1)" }}>
+                <span className="text-lg">📊</span>
+                <div className="flex-1"><span className="fb text-sm font-semibold text-white">Costo Real Total</span><br /><span className="fb text-xs" style={{ color: "var(--cd)" }}>Adquisición + todos los gastos</span></div>
+                <div className="fd font-bold" style={{ color: "var(--gd)" }}>{fmxn((f.cost || 0) + totalCostos)}</div>
+              </div>
+            </div>
+          ) : !newCosto && (
+            <div className="text-center py-8">
+              <div className="text-3xl mb-2 opacity-30">🧾</div>
+              <div className="fb text-sm" style={{ color: "var(--cd)" }}>Sin gastos operativos registrados</div>
+              <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Envíos, autenticaciones, reparaciones, seguros...</div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ═══ SUMMARY BAR + ACTIONS (always visible) ═══ */}
       <div className="rounded-xl p-3" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
         <div className="flex items-center gap-3 flex-wrap mb-3">
           {f.brand && <span className="fb text-xs px-2 py-1 rounded-full" style={{ background: "rgba(201,169,110,.1)", color: "var(--cr)" }}>{f.brand} {f.model}</span>}
           {f.ref && <span className="fb text-xs" style={{ color: "var(--cd)" }}>Ref: {f.ref}</span>}
-          {f.cost > 0 && <span className="fb text-xs font-bold" style={{ color: "var(--gn)" }}>{fmxn(f.cost)}</span>}
+          {f.cost > 0 && <span className="fb text-xs font-bold" style={{ color: "var(--gn)" }}>{fmxn(f.cost)}{totalCostos > 0 ? ` (+${fmxn(totalCostos)} gastos)` : ""}</span>}
           {f.serial && <span className="fb text-xs" style={{ color: "var(--cd)" }}>S/N: {f.serial}</span>}
           <span className="fb text-xs" style={{ color: "var(--cd)" }}>SKU: {f.sku}</span>
         </div>
@@ -1006,11 +1256,14 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
 }
 
 /* ═══ SELL FORM ═══ */
-function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, onSaveClient }) {
-  const [f, sF] = useState({ xPrice: piece.price_asked || 0, xDate: td(), cDate: td(), payOut: "SPEI", xType: "venta", xFund: "FIC", client_id: "" });
+function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, onSaveClient, costos }) {
+  const [f, sF] = useState({ xPrice: piece.price_asked || 0, xDate: td(), cDate: td(), payOut: "Efectivo MXN", xType: "venta", xFund: "FIC", client_id: "" });
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const c = piece.cost || 0;
-  const pr = f.xPrice - c;
+  const pieceCostos = (costos || []).filter(cx => cx.pieza_id === piece.id);
+  const totalGastos = pieceCostos.reduce((s, cx) => s + (Number(cx.monto) || 0), 0);
+  const costoReal = c + totalGastos;
+  const pr = f.xPrice - costoReal;
   const isTrade = f.xType === "trade_out";
   const [newClient, setNewClient] = useState(null);
 
@@ -1046,7 +1299,7 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
     <div className="space-y-4">
       <Cd className="p-4">
         <div className="fd font-semibold text-white">{piece.name}</div>
-        <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>SKU: {piece.sku} · CTM: {fmxn(c)} · Origen: {FUND_INFO[piece.fondo_id]?.short || piece.fondo_id}</div>
+        <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>SKU: {piece.sku} · Costo: {fmxn(c)}{totalGastos > 0 ? ` + Gastos: ${fmxn(totalGastos)} = Real: ${fmxn(costoReal)}` : ""} · {FUND_INFO[piece.fondo_id]?.short || piece.fondo_id}</div>
       </Cd>
 
       <div className="grid grid-cols-2 gap-3">
@@ -1195,8 +1448,16 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
       {/* Profit preview — only for sales */}
       {!isTrade && f.xPrice > 0 && (
         <div className="rounded-xl p-4" style={{ background: pr >= 0 ? "rgba(74,222,128,.06)" : "rgba(251,113,133,.06)", border: pr >= 0 ? "1px solid rgba(74,222,128,.15)" : "1px solid rgba(251,113,133,.15)" }}>
+          {totalGastos > 0 && (
+            <div className="fb text-xs mb-3 p-2 rounded-lg space-y-1" style={{ background: "rgba(255,255,255,.03)" }}>
+              <div className="flex justify-between"><span style={{ color: "var(--cd)" }}>Venta</span><span className="font-bold text-white">{fmxn(f.xPrice)}</span></div>
+              <div className="flex justify-between"><span style={{ color: "var(--cd)" }}>- Costo adquisición</span><span style={{ color: "var(--rd)" }}>-{fmxn(c)}</span></div>
+              <div className="flex justify-between"><span style={{ color: "var(--cd)" }}>- Gastos operativos ({pieceCostos.length})</span><span style={{ color: "var(--rd)" }}>-{fmxn(totalGastos)}</span></div>
+              <div className="flex justify-between pt-1" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}><span className="font-bold" style={{ color: "var(--gd)" }}>= Utilidad Real</span><span className="font-bold" style={{ color: pr >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(pr)}</span></div>
+            </div>
+          )}
           <div className={`grid gap-3 text-center`} style={{ gridTemplateColumns: `repeat(${(socios?.length || 0) + 1}, 1fr)` }}>
-            <div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad</span><br /><span className="fd font-bold text-lg" style={{ color: pr >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(pr)}</span></div>
+            <div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad{totalGastos > 0 ? " Real" : ""}</span><br /><span className="fd font-bold text-lg" style={{ color: pr >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(pr)}</span></div>
             {(socios || []).map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name} {s.participacion}%</span><br /><span className="fd font-bold text-white">{fmxn(Math.round(pr * (Number(s.participacion) / 100)))}</span></div>)}
           </div>
         </div>
@@ -1500,6 +1761,9 @@ function SettingsPage({ data, showToast, refresh, currentUser }) {
           Para publicar una pieza, edítala y activa "Publicar en catálogo público".
         </div>
       </Cd>
+
+      {/* AUDIT LOG — only superuser */}
+      {isSuperuser && <AuditLogViewer />}
     </div>
   );
 }
@@ -1562,17 +1826,21 @@ export default function App() {
     // Cash in fund = all FIC transactions summed
     let cash = 0; txs.forEach(t => { if (t.fondo_id === "FIC") cash += (t.monto || 0); });
 
-    // Realized profit = only from direct SELL (not trades)
+    // Helper: gastos totales por pieza
+    const allCostos = data.costos || [];
+    const gastosOf = (pid) => allCostos.filter(c => c.pieza_id === pid).reduce((s, c) => s + (Number(c.monto) || 0), 0);
+
+    // Realized profit = SELL - cost - gastos (only direct sales)
     const rp = sold.reduce((s, p) => {
       const sellTx = txs.find(t => t.pieza_id === p.id && t.tipo === "SELL");
       if (!sellTx) return s;
-      return s + ((sellTx.monto || 0) - (p.cost || 0));
+      return s + ((sellTx.monto || 0) - (p.cost || 0) - gastosOf(p.id));
     }, 0);
 
     const cap = txs.filter(t => t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
     const socios = data.socios || [];
     return {
-      inv, sold, invC, cash, rp, cap,
+      inv, sold, invC, cash, rp, cap, gastosOf,
       nav: cash + invC,
       moic: cap > 0 ? (cash + invC) / cap : 0,
       socios,
@@ -1591,17 +1859,28 @@ export default function App() {
     try {
       const newCap = p._newCapital || 0;
       const pendingFotos = p._pendingFotos || [];
-      const cleanP = { ...p }; delete cleanP._newCapital; delete cleanP._pendingFotos;
+      const cleanP = { ...p }; delete cleanP._newCapital; delete cleanP._pendingFotos; delete cleanP.metodo_pago;
+      // Trim text fields
+      ["brand","model","ref","serial","name","sku","catalog_description","notes"].forEach(k => { if (typeof cleanP[k] === "string") cleanP[k] = cleanP[k].trim(); });
+      const payMethod = p.metodo_pago || "Efectivo MXN";
       const isNA = cleanP.fondo_id === "NA";
+
+      // Cash validation (warning, not blocking)
+      if (!isNA && cleanP.entry_type !== "trade_in" && cleanP.cost > 0) {
+        const txs = data?.txs || [];
+        const currentCash = txs.reduce((s, t) => t.fondo_id === "FIC" ? s + (t.monto || 0) : s, 0);
+        const availCash = currentCash + newCap;
+        if (cleanP.cost > availCash && !confirm(`⚠️ El fondo tiene ${fmxn(availCash)} pero la pieza cuesta ${fmxn(cleanP.cost)}.\n\nEsto dejará el cash en negativo (${fmxn(availCash - cleanP.cost)}).\n\n¿Continuar de todos modos?`)) return;
+      }
 
       // Nueva Aportación: register full cost as capital into FIC, then piece goes to FIC
       if (isNA) {
-        await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: cleanP.cost, fondo_id: "FIC", descripcion: `Nueva aportación para ${cleanP.name}`, metodo_pago: "SPEI", partner_id: user?.id });
+        await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: cleanP.cost, fondo_id: "FIC", descripcion: `Nueva aportación para ${cleanP.name}`, metodo_pago: payMethod, partner_id: user?.id });
         cleanP.fondo_id = "FIC";
       }
       // Combined financing: partial capital injection
       else if (newCap > 0) {
-        await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: newCap, fondo_id: cleanP.fondo_id, descripcion: `Aportación parcial para ${cleanP.name} (financiamiento combinado)`, metodo_pago: "SPEI", partner_id: user?.id });
+        await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: newCap, fondo_id: cleanP.fondo_id, descripcion: `Aportación parcial para ${cleanP.name} (financiamiento combinado)`, metodo_pago: payMethod, partner_id: user?.id });
       }
 
       // Save piece FIRST (so FK constraint is satisfied)
@@ -1613,16 +1892,26 @@ export default function App() {
         catch (fe) { console.error("Foto save error:", fe); }
       }
 
-      await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: cleanP.entry_type === "trade_in" ? "TRADE" : "BUY", pieza_id: cleanP.id, monto: cleanP.entry_type === "trade_in" ? 0 : -(cleanP.cost || 0), fondo_id: cleanP.fondo_id, descripcion: `${etLabel(cleanP.entry_type)} — ${cleanP.name}`, metodo_pago: "SPEI" });
+      await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: cleanP.entry_type === "trade_in" ? "TRADE" : "BUY", pieza_id: cleanP.id, monto: cleanP.entry_type === "trade_in" ? 0 : -(cleanP.cost || 0), fondo_id: cleanP.fondo_id, descripcion: `${etLabel(cleanP.entry_type)} — ${cleanP.name}`, metodo_pago: cleanP.entry_type === "trade_in" ? "Trade" : payMethod });
       showToast(`${cleanP.name} registrada${pendingFotos.length ? ` con ${pendingFotos.length} foto(s)` : ""}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, user]);
 
   const hUpdPc = useCallback(async (p) => {
-    try { const cleanP = { ...p }; delete cleanP._newCapital; delete cleanP._pendingFotos; await db.savePiece(cleanP); showToast("Pieza actualizada"); await refresh(); cm(); }
-    catch (e) { alert("Error: " + e.message); }
-  }, [refresh, cm]);
+    try {
+      const cleanP = { ...p }; delete cleanP._newCapital; delete cleanP._pendingFotos; delete cleanP.metodo_pago;
+      ["brand","model","ref","serial","name","sku","catalog_description","notes"].forEach(k => { if (typeof cleanP[k] === "string") cleanP[k] = cleanP[k].trim(); });
+      // Track edits
+      const old = data?.pieces?.find(op => op.id === cleanP.id);
+      if (old) {
+        const trackFields = ["name","brand","model","ref","serial","cost","price_asked","price_dealer","price_trade","status","condition","fondo_id","notes","publish_catalog"];
+        const edits = trackFields.filter(k => String(old[k] ?? "") !== String(cleanP[k] ?? "")).map(k => ({ id: crypto.randomUUID(), pieza_id: cleanP.id, campo: k, valor_antes: String(old[k] ?? ""), valor_despues: String(cleanP[k] ?? ""), editado_por: user?.email || "unknown" }));
+        for (const e of edits) { try { await sb.from("pieza_edits").insert(e); } catch(ee) { console.warn("Edit track err:", ee); } }
+      }
+      await db.savePiece(cleanP); showToast("Pieza actualizada"); await refresh(); cm();
+    } catch (e) { alert("Error: " + e.message); }
+  }, [refresh, cm, data, user]);
 
   const hSell = useCallback(async (p) => {
     try {
@@ -1660,10 +1949,13 @@ export default function App() {
       }
 
       // ═══ REGULAR SALE ═══
-      const profit = p.xPrice - cost;
+      const allCostos = data.costos || [];
+      const gastosPieza = allCostos.filter(cx => cx.pieza_id === p.id).reduce((s, cx) => s + (Number(cx.monto) || 0), 0);
+      const costoReal = cost + gastosPieza;
+      const profit = p.xPrice - costoReal;
       await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: p.xType, exit_fund: p.xFund, client_id: p.client_id || null });
-      await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, descripcion: `Venta ${p.name} → ${FUND_INFO[p.xFund]?.short} (Costo: ${fmxn(cost)}, Utilidad: ${fmxn(profit)})`, metodo_pago: p.payOut });
-      showToast(`Venta registrada: ${p.name} — Utilidad: ${fmxn(profit)}`);
+      await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, descripcion: `Venta ${p.name} → ${FUND_INFO[p.xFund]?.short} (Costo: ${fmxn(cost)}${gastosPieza > 0 ? ` + Gastos: ${fmxn(gastosPieza)}` : ""}, Utilidad Real: ${fmxn(profit)})`, metodo_pago: p.payOut });
+      showToast(`Venta registrada: ${p.name} — Utilidad Real: ${fmxn(profit)}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, data]);
@@ -1707,7 +1999,7 @@ export default function App() {
 
   const hCap = useCallback(async (amt, desc, partner) => {
     try {
-      await db.saveTx({ id: uid(), fecha: td(), tipo: "CAPITAL", monto: amt, fondo_id: "FIC", descripcion: desc || "Inyección de capital", metodo_pago: "SPEI", partner_id: partner });
+      await db.saveTx({ id: uid(), fecha: td(), tipo: "CAPITAL", monto: amt, fondo_id: "FIC", descripcion: desc || "Inyección de capital", metodo_pago: "Efectivo MXN", partner_id: partner });
       showToast("Capital registrado");
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
@@ -1856,7 +2148,7 @@ export default function App() {
                 const soldPieces = (comp.sold || []).map(p => {
                   const sellTx = (data.txs || []).find(t => t.pieza_id === p.id && t.tipo === "SELL");
                   if (!sellTx) return null;
-                  return { name: p.name?.split(" ").slice(0, 2).join(" ") || "?", profit: (sellTx.monto || 0) - (p.cost || 0), cost: p.cost || 0, sale: sellTx.monto || 0 };
+                  return { name: p.name?.split(" ").slice(0, 2).join(" ") || "?", profit: (sellTx.monto || 0) - (p.cost || 0) - (comp.gastosOf?.(p.id) || 0), gastos: comp.gastosOf?.(p.id) || 0, cost: p.cost || 0, sale: sellTx.monto || 0 };
                 }).filter(Boolean);
                 if (soldPieces.length === 0) return (
                   <Cd className="p-5 flex items-center justify-center">
@@ -1987,6 +2279,9 @@ export default function App() {
               <St label="Vendidas" value={String(comp.sold?.length || 0)} accent="var(--pr)" />
               <St label="ROI" value={comp.cap > 0 ? `${((comp.rp / comp.cap) * 100).toFixed(1)}%` : "—"} accent="var(--bl)" />
             </div>
+            {/* Contact Stats */}
+            <ContactStats pieces={data.pieces} />
+
             <Cd className="p-5">
               <h3 className="fd font-semibold text-white mb-4">Distribución de Utilidades</h3>
               <div className={`grid gap-4 text-center`} style={{ gridTemplateColumns: `repeat(${(data.socios?.length || 0) + 1}, 1fr)` }}>
@@ -2006,9 +2301,9 @@ export default function App() {
       {toast && <div className="fixed bottom-4 right-4 z-50 fb text-sm px-4 py-3 rounded-xl shadow-lg au" style={{ background: toast.type === "ok" ? "#166534" : "rgba(251,113,133,.2)", color: toast.type === "ok" ? "var(--gn)" : "var(--rd)" }}>{toast.msg}</div>}
 
       {/* MODALS */}
-      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} /></Md>
-      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} />}</Md>
-      <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} clients={data.clients} onSaveClient={async (c) => { await db.saveClient(c); await refresh(); }} />}</Md>
+      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile_?.role} /></Md>
+      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile_?.role} />}</Md>
+      <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} clients={data.clients} onSaveClient={async (c) => { await db.saveClient(c); await refresh(); }} costos={data.costos} />}</Md>
       <Md open={modal === "trade"} onClose={cm} title={"Trade-out — " + (sel?.name || "")} wide>{sel && <TradeForm piece={sel} allPieces={data.pieces} onSave={hTrade} onClose={cm} />}</Md>
       <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} />}</Md>
       <Md open={modal === "ct"} onClose={cm} title="Nuevo Corte Mensual" wide>{<CorteForm onSave={async (c) => {
@@ -2035,12 +2330,76 @@ export default function App() {
           showToast(c.decision === "retirar" ? "Corte cerrado — retiros generados" : "Corte cerrado — utilidades reinvertidas como capital");
           await refresh(); cm();
         } catch (e) { alert(e.message); }
-      } } onClose={cm} socios={data.socios} pieces={data.pieces} txs={data.txs} cortes={data.cortes} />}</Md>
+      } } onClose={cm} socios={data.socios} pieces={data.pieces} txs={data.txs} cortes={data.cortes} costos={data.costos} />}</Md>
     </div>
   );
 }
 
 /* ═══ SMALL FORMS ═══ */
+function ContactStats({ pieces }) {
+  const [stats, setStats] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => { if (!loaded) { db.loadContactStats().then(d => { setStats(d); setLoaded(true); }); } }, [loaded]);
+  if (!stats || stats.length === 0) return null;
+  const byPiece = {};
+  stats.forEach(s => { byPiece[s.pieza_id] = (byPiece[s.pieza_id] || 0) + 1; });
+  const ranked = Object.entries(byPiece).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const today = stats.filter(s => s.created_at?.slice(0, 10) === td()).length;
+  const week = stats.filter(s => { const d = new Date(s.created_at); return (Date.now() - d.getTime()) < 7 * 86400000; }).length;
+  return (
+    <Cd className="p-5">
+      <div className="flex items-center justify-between mb-3">
+        <div className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--bl)" }}>📱 Contactos del Catálogo</div>
+        <div className="flex gap-3">
+          <span className="fb text-xs" style={{ color: "var(--gn)" }}>Hoy: {today}</span>
+          <span className="fb text-xs" style={{ color: "var(--bl)" }}>7d: {week}</span>
+          <span className="fb text-xs" style={{ color: "var(--cd)" }}>Total: {stats.length}</span>
+        </div>
+      </div>
+      <div className="space-y-1">
+        {ranked.map(([pid, count]) => {
+          const p = (pieces || []).find(pc => pc.id === pid);
+          return <div key={pid} className="flex items-center gap-2 p-2 rounded-lg" style={{ background: "rgba(255,255,255,.02)" }}>
+            <div className="fb text-sm text-white flex-1 truncate">{p?.name || pid}</div>
+            {p?.es_referenciada && <span className="fb text-xs" style={{ color: "var(--gd)" }}>🤝</span>}
+            <div className="fb text-sm font-bold" style={{ color: "var(--bl)" }}>{count} <span className="text-xs font-normal" style={{ color: "var(--cd)" }}>click{count !== 1 ? "s" : ""}</span></div>
+          </div>;
+        })}
+      </div>
+    </Cd>
+  );
+}
+
+function AuditLogViewer() {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const load = async () => { setLoading(true); setLogs(await db.loadAuditLog(100)); setLoading(false); setExpanded(true); };
+  return (
+    <Cd className="p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="fd font-semibold text-white">📜 Registro de Actividad</h3>
+        {!expanded ? <BtnS onClick={load}>{loading ? "Cargando..." : "Ver Log"}</BtnS> : <BtnS onClick={() => setExpanded(false)}>Ocultar</BtnS>}
+      </div>
+      {expanded && logs.length > 0 && (
+        <div className="space-y-1" style={{ maxHeight: 400, overflowY: "auto" }}>
+          {logs.map(l => (
+            <div key={l.id} className="flex items-start gap-2 p-2 rounded-lg" style={{ background: "rgba(255,255,255,.02)" }}>
+              <div className="fb text-xs shrink-0" style={{ color: "var(--cd)", minWidth: 120 }}>{l.created_at?.slice(0, 16).replace("T", " ")}</div>
+              <div className="fb text-xs font-semibold shrink-0" style={{ color: "var(--bl)", minWidth: 80 }}>{l.action}</div>
+              <div className="fb text-xs flex-1 min-w-0 truncate" style={{ color: "var(--cd)" }}>
+                {l.description || `${l.module || ""} ${l.entity || ""}`}
+              </div>
+              <div className="fb text-xs shrink-0" style={{ color: "var(--gk)" }}>{l.user_name || l.user_email || "—"}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {expanded && logs.length === 0 && <div className="fb text-sm text-center py-4" style={{ color: "var(--cd)" }}>No hay registros de actividad.</div>}
+    </Cd>
+  );
+}
+
 function CatalogsSection({ data, refresh, showToast, db }) {
   const [catTab, setCatTab] = useState("proveedores");
   const [editItem, setEditItem] = useState(null);
@@ -2191,10 +2550,11 @@ function CapitalForm({ onSave, onClose, socios }) {
   </div>;
 }
 
-function CorteForm({ onSave, onClose, socios, pieces, txs, cortes }) {
+function CorteForm({ onSave, onClose, socios, pieces, txs, cortes, costos }) {
   const sl = socios || [];
   const allTxs = txs || [];
   const allPieces = pieces || [];
+  const allCostos = costos || [];
   const existingCortes = cortes || [];
   const [period, setP] = useState(td().slice(0, 7));
   const [label, setL] = useState("");
@@ -2208,14 +2568,16 @@ function CorteForm({ onSave, onClose, socios, pieces, txs, cortes }) {
     return allTxs.filter(t => t.tipo === "SELL" && t.fecha >= start && t.fecha <= end).map(t => {
       const pc = allPieces.find(p => p.id === t.pieza_id);
       const cost = pc?.cost || 0;
+      const gastos = allCostos.filter(cx => cx.pieza_id === t.pieza_id).reduce((s, cx) => s + (Number(cx.monto) || 0), 0);
       const sale = t.monto || 0;
-      return { txId: t.id, pieza_id: t.pieza_id, name: pc?.name || "—", sku: pc?.sku || "", cost, sale, profit: sale - cost, fecha: t.fecha };
+      return { txId: t.id, pieza_id: t.pieza_id, name: pc?.name || "—", sku: pc?.sku || "", cost, gastos, costoReal: cost + gastos, sale, profit: sale - cost - gastos, fecha: t.fecha };
     });
-  }, [period, allTxs, allPieces]);
+  }, [period, allTxs, allPieces, allCostos]);
 
   const totalProfit = periodSells.reduce((s, p) => s + p.profit, 0);
   const totalSales = periodSells.reduce((s, p) => s + p.sale, 0);
   const totalCost = periodSells.reduce((s, p) => s + p.cost, 0);
+  const totalGastosCorte = periodSells.reduce((s, p) => s + p.gastos, 0);
   const splits = Object.fromEntries(sl.map(s => [s.id, Math.round(totalProfit * (Number(s.participacion) / 100))]));
   const cap = allTxs.filter(t => t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
 
@@ -2237,7 +2599,7 @@ function CorteForm({ onSave, onClose, socios, pieces, txs, cortes }) {
               <div className="fb text-xs" style={{ color: "var(--cd)" }}>{s.fecha}</div>
             </div>
             <div className="text-right">
-              <div className="fb text-xs" style={{ color: "var(--cd)" }}>Costo: {fmxn(s.cost)} → Venta: {fmxn(s.sale)}</div>
+              <div className="fb text-xs" style={{ color: "var(--cd)" }}>Costo: {fmxn(s.cost)}{s.gastos > 0 ? ` + Gastos: ${fmxn(s.gastos)}` : ""} → Venta: {fmxn(s.sale)}</div>
               <div className="fb text-sm font-bold" style={{ color: s.profit >= 0 ? "var(--gn)" : "var(--rd)" }}>{s.profit >= 0 ? "+" : ""}{fmxn(s.profit)}</div>
             </div>
           </div>
@@ -2245,7 +2607,7 @@ function CorteForm({ onSave, onClose, socios, pieces, txs, cortes }) {
         <div className="flex items-center gap-3 p-3 mt-2 rounded-xl" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.1)" }}>
           <div className="flex-1"><span className="fd font-semibold text-white">Total</span></div>
           <div className="text-right">
-            <div className="fb text-xs" style={{ color: "var(--cd)" }}>Costo: {fmxn(totalCost)} → Ventas: {fmxn(totalSales)}</div>
+            <div className="fb text-xs" style={{ color: "var(--cd)" }}>Costo: {fmxn(totalCost)}{totalGastosCorte > 0 ? ` + Gastos: ${fmxn(totalGastosCorte)}` : ""} → Ventas: {fmxn(totalSales)}</div>
             <div className="fd text-lg font-bold" style={{ color: totalProfit >= 0 ? "var(--gn)" : "var(--rd)" }}>{totalProfit >= 0 ? "+" : ""}{fmxn(totalProfit)}</div>
           </div>
         </div>
