@@ -47,7 +47,7 @@ const stor = {
 /* ═══ DB LAYER ═══ */
 const db = {
   async loadAll() {
-    const [pz, tx, ct, fo, cl, su, st, cr, sc, pr, cp] = await Promise.all([
+    const [pz, tx, ct, fo, cl, su, st, cr, sc, pr, cp, fn] = await Promise.all([
       sb.from("piezas").select("*").order("created_at", { ascending: false }),
       sb.from("transacciones").select("*").order("fecha", { ascending: false }),
       sb.from("cortes").select("*").order("periodo", { ascending: false }),
@@ -59,6 +59,7 @@ const db = {
       sb.from("socios").select("*").order("participacion", { ascending: false }),
       sb.from("profiles").select("*").order("name"),
       sb.from("costos_pieza").select("*"),
+      sb.from("fondos").select("*").eq("activo", true),
     ]);
     return {
       pieces: pz.data || [], txs: tx.data || [], cortes: ct.data || [],
@@ -68,6 +69,7 @@ const db = {
       socios: sc.data || [],
       profiles: pr.data || [],
       costos: cp.data || [],
+      fondos: fn.data || [],
     };
   },
   async loadDocs(entType, entId) {
@@ -149,12 +151,21 @@ const can = (role, perm) => (PERMS[role] || PERMS.pending)[perm] || false;
 const SUPPLIER_TYPES = ["Particular","Dealer","Consignación","Subasta","Trade-in"];
 const CLIENT_TIERS = ["Prospecto","Regular","VIP","Mayorista"];
 const xtLabel = v => EXIT_TYPES.find(e => e.v === v)?.l || v;
-const FUND_INFO = {
+const FUND_INFO_BASE = {
   FIC: { short:"Fondo de Inversión", full:"Fondo de Inversión Compartida", desc:"Fondo común. Utilidades se reparten según participación de socios.", icon:"🏦" },
-  NA:  { short:"Nueva Aportación", full:"Nueva Aportación de Capital", desc:"Dinero nuevo. Se registra como capital y la pieza entra al FIC.", icon:"💰" },
+  NA:  { short:"Nueva Aportación", full:"Nueva Aportación de Capital", desc:"Dinero nuevo. Se registra como capital y la pieza entra al fondo seleccionado.", icon:"💰" },
 };
+const buildFundInfo = (fondos) => {
+  const fi = { ...FUND_INFO_BASE };
+  (fondos || []).forEach(f => {
+    if (!fi[f.id]) fi[f.id] = { short: f.nombre, full: f.nombre, desc: f.descripcion || "", icon: f.tipo === "personal" ? "👤" : "🏦" };
+  });
+  return fi;
+};
+// Legacy compat
+const FUND_INFO = FUND_INFO_BASE;
 const FUNDS = Object.keys(FUND_INFO);
-const FUNDS_REAL = FUNDS.filter(f => f !== "NA"); // Fondos reales (sin Nueva Aportación)
+const FUNDS_REAL = FUNDS.filter(f => f !== "NA");
 // Socios loaded from DB (data.socios) — no more hardcoded partners
 
 const PHOTO_POSITIONS = [
@@ -234,12 +245,12 @@ function Fl({label,children,req,hint}){return <div className="mb-3"><label class
 function Md({open,onClose,title,children,wide}){if(!open)return null;return <div className="fixed inset-0 z-50 ai" style={{isolation:"isolate"}}><div className="absolute inset-0" style={{background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)"}} onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}/><div className="absolute inset-0 overflow-y-auto scr" style={{pointerEvents:"none"}}><div className="min-h-full flex items-start justify-center pt-4 md:pt-8 px-2 md:px-4 pb-8"><div className={`relative rounded-2xl shadow-2xl ${wide?"w-full max-w-3xl":"w-full max-w-lg"} au`} style={{background:"var(--n2)",border:"1px solid rgba(201,169,110,.15)",pointerEvents:"auto"}} onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()}><div className="sticky top-0 z-10 flex items-center justify-between px-4 md:px-6 py-3 md:py-4 rounded-t-2xl" style={{background:"var(--n2)",borderBottom:"1px solid rgba(255,255,255,.06)"}}><h2 className="fd font-semibold text-base md:text-lg text-white truncate pr-4">{title}</h2><button type="button" onClick={e=>{e.stopPropagation();onClose()}} className="p-1.5 rounded-lg hover:bg-white/5 shrink-0" style={{color:"var(--cd)"}}><Ico d={IC.x}/></button></div><div className="p-4 md:p-6">{children}</div></div></div></div></div>}
 
 const BtnP=({children,onClick,disabled,full})=><button type="button" onClick={onClick} disabled={disabled} className={`fb px-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:brightness-110 active:scale-[.98] disabled:opacity-40 disabled:cursor-not-allowed ${full?"w-full":""}`} style={{background:"var(--gd)",color:"var(--nv)"}}>{children}</button>;
-const BtnS=({children,onClick,full})=><button type="button" onClick={onClick} className={`fb px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:bg-white/10 ${full?"w-full":""}`} style={{background:"rgba(245,240,232,.06)",color:"var(--cd)",border:"1px solid rgba(255,255,255,.08)"}}>{children}</button>;
+const BtnS=({children,onClick,full,disabled})=><button type="button" onClick={onClick} disabled={disabled} className={`fb px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed ${full?"w-full":""}`} style={{background:"rgba(245,240,232,.06)",color:"var(--cd)",border:"1px solid rgba(255,255,255,.08)"}}>{children}</button>;
 const BtnG=({children,onClick,disabled})=><button type="button" onClick={onClick} disabled={disabled} className="fb px-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:brightness-110 disabled:opacity-40" style={{background:"#166534",color:"var(--gn)"}}>{children}</button>;
 const BtnD=({children,onClick})=><button type="button" onClick={onClick} className="fb px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-900/30" style={{color:"var(--rd)"}}>{children}</button>;
 
 /* ═══ FUND SELECTOR (compact for mobile) ═══ */
-function FundSel({value,onChange,label,funds}){const flist=funds||FUNDS;return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{flist.map(fk=>{const fi=FUND_INFO[fk];if(!fi)return null;const s=value===fk;return <button key={fk} type="button" onClick={()=>onChange(fk)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(201,169,110,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{fi.icon}</span><span className="fb font-semibold text-sm text-white flex-1">{fi.short}</span>{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
+function FundSel({value,onChange,label,funds,fundInfo:fi}){const flist=funds||FUNDS;const info=fi||FUND_INFO_BASE;return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{flist.map(fk=>{const f=info[fk];if(!f)return null;const s=value===fk;return <button key={fk} type="button" onClick={()=>onChange(fk)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(201,169,110,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{f.icon}</span><span className="fb font-semibold text-sm text-white flex-1">{f.short}</span>{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
 
 /* ═══ PHOTO UPLOAD COMPONENT ═══ */
 function PhotoUploader({ pieceId, fotos, onUpload, onDelete, isNew }) {
@@ -885,9 +896,10 @@ function LoginScreen({ onLogin }) {
 /* ═══════════════════════════════════════════════════════════════════
    PIECE FORM — Full form with photos, docs, custom refs
    ═══════════════════════════════════════════════════════════════════ */
-function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier, userRole }) {
+function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier, userRole, fundInfo: fi, myFunds, defaultFund }) {
+  const fundInfo = fi || FUND_INFO_BASE;
   const autoSku = piece?.sku || genSku(allPieces);
-  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "", metodo_pago: "Efectivo MXN", whatsapp_pieza: "", es_referenciada: false, referenciada_por: "", referenciada_comision: 0 };
+  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: defaultFund || "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "", metodo_pago: "Efectivo MXN", whatsapp_pieza: "", es_referenciada: false, referenciada_por: "", referenciada_comision: 0 };
   const [f, sF] = useState(piece ? { ...blank, ...piece } : blank);
   const [localFotos, setLocalFotos] = useState(fotosProp || []);
   const [combinedFin, setCombinedFin] = useState(false);
@@ -895,6 +907,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
   const [newSupplier, setNewSupplier] = useState(null);
   const [tab, setTab] = useState("id");
   const [aiResult, setAiResult] = useState(null);
+  const [saving, setSaving] = useState(false);
   const fromFund = Math.max(0, (f.cost || 0) - newCapital);
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const autoName = (b, m) => [b, m].filter(Boolean).join(" ");
@@ -1083,7 +1096,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
               <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--bl)" }}>↓ Origen del Recurso</span>
               <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿De dónde sale el dinero?</span>
             </div>
-            <FundSel value={f.fondo_id} onChange={v => { u("fondo_id", v); if (v === "NA") { setCombinedFin(false); setNewCapital(0); } }} />
+            <FundSel value={f.fondo_id} onChange={v => { u("fondo_id", v); if (v === "NA") { setCombinedFin(false); setNewCapital(0); } }} funds={[...(myFunds || ["FIC"]), "NA"]} fundInfo={fundInfo} />
             {f.fondo_id === "NA" && f.cost > 0 && (
               <div className="mt-2 fb text-xs p-3 rounded-lg" style={{ background: "rgba(74,222,128,.06)", color: "var(--gn)" }}>
                 💰 Se registrará una inyección de capital de <strong>{fmxn(f.cost)}</strong> al Fondo de Inversión Compartida (FIC).
@@ -1100,7 +1113,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                   <div className="mt-3 space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}>
-                        <div className="fb text-xs" style={{ color: "var(--bl)" }}>Del {FUND_INFO[f.fondo_id]?.short || "Fondo"}</div>
+                        <div className="fb text-xs" style={{ color: "var(--bl)" }}>Del {fundInfo[f.fondo_id]?.short || "Fondo"}</div>
                         <div className="fd font-bold text-lg text-white">{fmxn(fromFund)}</div>
                       </div>
                       <div className="rounded-xl p-3 text-center" style={{ background: "rgba(74,222,128,.06)" }}>
@@ -1247,7 +1260,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
           <span className="fb text-xs" style={{ color: "var(--cd)" }}>SKU: {f.sku}</span>
         </div>
         <div className="flex gap-3">
-          <BtnP onClick={() => onSave({ ...f, _newCapital: combinedFin ? newCapital : 0, _pendingFotos: localFotos.filter(ft => ft._pending) })}>Guardar Pieza</BtnP>
+          <BtnP onClick={async () => { if (saving) return; setSaving(true); try { await onSave({ ...f, _newCapital: combinedFin ? newCapital : 0, _pendingFotos: localFotos.filter(ft => ft._pending) }); } catch(e) { alert("Error: " + e.message); setSaving(false); } }} disabled={saving}>{saving ? "Guardando..." : "Guardar Pieza"}</BtnP>
           <BtnS onClick={onClose}>Cancelar</BtnS>
         </div>
       </div>
@@ -1256,8 +1269,9 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
 }
 
 /* ═══ SELL FORM ═══ */
-function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, onSaveClient, costos }) {
-  const [f, sF] = useState({ xPrice: piece.price_asked || 0, xDate: td(), cDate: td(), payOut: "Efectivo MXN", xType: "venta", xFund: "FIC", client_id: "" });
+function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, onSaveClient, costos, fundInfo: fi, myFunds }) {
+  const fundInfo = fi || FUND_INFO_BASE;
+  const [f, sF] = useState({ xPrice: piece.price_asked || 0, xDate: td(), cDate: td(), payOut: "Efectivo MXN", xType: "venta", xFund: piece.fondo_id || "FIC", client_id: "" });
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const c = piece.cost || 0;
   const pieceCostos = (costos || []).filter(cx => cx.pieza_id === piece.id);
@@ -1266,6 +1280,7 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
   const pr = f.xPrice - costoReal;
   const isTrade = f.xType === "trade_out";
   const [newClient, setNewClient] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   // Trade-out state
   const [incoming, setIncoming] = useState([]);
@@ -1299,7 +1314,7 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
     <div className="space-y-4">
       <Cd className="p-4">
         <div className="fd font-semibold text-white">{piece.name}</div>
-        <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>SKU: {piece.sku} · Costo: {fmxn(c)}{totalGastos > 0 ? ` + Gastos: ${fmxn(totalGastos)} = Real: ${fmxn(costoReal)}` : ""} · {FUND_INFO[piece.fondo_id]?.short || piece.fondo_id}</div>
+        <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>SKU: {piece.sku} · Costo: {fmxn(c)}{totalGastos > 0 ? ` + Gastos: ${fmxn(totalGastos)} = Real: ${fmxn(costoReal)}` : ""} · {fundInfo[piece.fondo_id]?.short || piece.fondo_id}</div>
       </Cd>
 
       <div className="grid grid-cols-2 gap-3">
@@ -1435,7 +1450,7 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
             <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gn)" }}>↑ Destino del Recurso</span>
             <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿A qué fondo entra el dinero?</span>
           </div>
-          <FundSel value={f.xFund} onChange={v => u("xFund", v)} funds={FUNDS_REAL} />
+          <FundSel value={f.xFund} onChange={v => u("xFund", v)} funds={myFunds || ["FIC"]} fundInfo={fundInfo} />
         </div>
       )}
 
@@ -1468,16 +1483,18 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
 
       <div className="flex gap-3 pt-2">
         {isTrade ? (
-          <BtnG onClick={() => {
+          <BtnG disabled={saving} onClick={async () => {
+            if (saving) return;
             if (incoming.length === 0 || !incoming.some(i => i.brand && i.value > 0)) return alert("Agrega al menos 1 pieza que recibes");
             const bd = totalIn + cashIn - cashOut - c;
             if (bd !== 0 && !confirm(`El trade está descuadrado por ${fmxn(bd)}. ¿Registrar de todos modos?`)) return;
-            onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: "trade_out", exit_fund: piece.fondo_id, ...f, _tradeIncoming: incoming, _cashOut: cashOut, _cashIn: cashIn });
-          }}>Registrar Trade Out</BtnG>
+            setSaving(true);
+            try { await onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: "trade_out", exit_fund: piece.fondo_id, ...f, _tradeIncoming: incoming, _cashOut: cashOut, _cashIn: cashIn }); } catch(e) { alert("Error: " + e.message); setSaving(false); }
+          }}>{saving ? "Guardando..." : "Registrar Trade Out"}</BtnG>
         ) : (
-          <BtnG onClick={() => onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: f.xType, exit_fund: f.xFund, ...f })}>Registrar Venta</BtnG>
+          <BtnG disabled={saving} onClick={async () => { if (saving) return; setSaving(true); try { await onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: f.xType, exit_fund: f.xFund, ...f }); } catch(e) { alert("Error: " + e.message); setSaving(false); } }}>{saving ? "Guardando..." : "Registrar Venta"}</BtnG>
         )}
-        <BtnS onClick={onClose}>Cancelar</BtnS>
+        <BtnS onClick={onClose} disabled={saving}>Cancelar</BtnS>
       </div>
     </div>
   );
@@ -1787,6 +1804,7 @@ export default function App() {
   const [q, setQ] = useState("");
   const [docs, setDocs] = useState([]);
   const [toast, setToast] = useState(null);
+  const [activeFund, setActiveFund] = useState("ALL");
 
   const showToast = (msg, type = "ok") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
@@ -1815,16 +1833,46 @@ export default function App() {
 
   const cm = useCallback(() => { setModal(null); setSel(null); setDocs([]); }, []);
 
+  // User profile and fund access
+  const myProfile = useMemo(() => data ? (data.profiles || []).find(p => p.id === user?.id) : null, [data, user]);
+  const fundInfo = useMemo(() => data ? buildFundInfo(data.fondos) : FUND_INFO_BASE, [data]);
+  const myFunds = useMemo(() => {
+    if (!myProfile || !data) return ["FIC"];
+    if (myProfile.role === "superuser") return (data.fondos || []).map(f => f.id);
+    const personal = myProfile.fondo_personal;
+    return personal ? [personal, "FIC"] : ["FIC"];
+  }, [myProfile, data]);
+
+  // Set default active fund for directors on first load
+  useEffect(() => {
+    if (myProfile && activeFund === "ALL") {
+      if (myProfile.role === "superuser") setActiveFund("ALL");
+      else if (myProfile.fondo_personal) setActiveFund(myProfile.fondo_personal);
+      else setActiveFund("FIC");
+    }
+  }, [myProfile]);
+
   const comp = useMemo(() => {
     if (!data) return {};
     const ps = data.pieces || [];
     const txs = data.txs || [];
-    const inv = ps.filter(p => p.status === "Disponible");
-    const sold = ps.filter(p => p.status === "Vendido" || p.status === "Liquidado");
+    const af = activeFund; // "ALL", "FIC", "FP-JP", etc.
+
+    // Filter by active fund
+    const fPs = af === "ALL" ? ps : ps.filter(p => p.fondo_id === af);
+    const fTxs = af === "ALL" ? txs : txs.filter(t => t.fondo_id === af);
+
+    const inv = fPs.filter(p => p.status === "Disponible");
+    const sold = fPs.filter(p => p.status === "Vendido" || p.status === "Liquidado");
     const invC = inv.reduce((s, p) => s + (p.cost || 0), 0);
 
-    // Cash in fund = all FIC transactions summed
-    let cash = 0; txs.forEach(t => { if (t.fondo_id === "FIC") cash += (t.monto || 0); });
+    // Cash = sum of all transactions for the active fund(s)
+    let cash = 0;
+    if (af === "ALL") {
+      txs.forEach(t => { cash += (t.monto || 0); });
+    } else {
+      fTxs.forEach(t => { cash += (t.monto || 0); });
+    }
 
     // Helper: gastos totales por pieza
     const allCostos = data.costos || [];
@@ -1832,27 +1880,36 @@ export default function App() {
 
     // Realized profit = SELL - cost - gastos (only direct sales)
     const rp = sold.reduce((s, p) => {
-      const sellTx = txs.find(t => t.pieza_id === p.id && t.tipo === "SELL");
+      const sellTx = fTxs.find(t => t.pieza_id === p.id && t.tipo === "SELL");
       if (!sellTx) return s;
       return s + ((sellTx.monto || 0) - (p.cost || 0) - gastosOf(p.id));
     }, 0);
 
-    const cap = txs.filter(t => t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
+    const cap = fTxs.filter(t => t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
     const socios = data.socios || [];
+
+    // For personal funds, splits don't apply — owner gets 100%
+    const currentFondo = (data.fondos || []).find(f => f.id === af);
+    const isPersonal = currentFondo?.tipo === "personal";
+
     return {
-      inv, sold, invC, cash, rp, cap, gastosOf,
+      inv, sold, invC, cash, rp, cap, gastosOf, isPersonal, activeFundName: fundInfo[af]?.short || af,
       nav: cash + invC,
       moic: cap > 0 ? (cash + invC) / cap : 0,
       socios,
-      splits: socios.map(s => ({ ...s, share: Math.round(rp * (Number(s.participacion) / 100)) })),
+      splits: isPersonal ? [{ id: "owner", name: currentFondo?.nombre || "Propietario", participacion: 100, color: "#C9A96E", share: rp }]
+        : socios.map(s => ({ ...s, share: Math.round(rp * (Number(s.participacion) / 100)) })),
     };
-  }, [data]);
+  }, [data, activeFund, fundInfo]);
 
   const fp = useMemo(() => {
     if (!data) return [];
     const s = q.toLowerCase();
-    return (data.pieces || []).filter(p => !s || (p.name || "").toLowerCase().includes(s) || (p.brand || "").toLowerCase().includes(s) || (p.sku || "").toLowerCase().includes(s) || (p.ref || "").toLowerCase().includes(s));
-  }, [data, q]);
+    return (data.pieces || []).filter(p => {
+      if (activeFund !== "ALL" && p.fondo_id !== activeFund) return false;
+      return !s || (p.name || "").toLowerCase().includes(s) || (p.brand || "").toLowerCase().includes(s) || (p.sku || "").toLowerCase().includes(s) || (p.ref || "").toLowerCase().includes(s);
+    });
+  }, [data, q, activeFund]);
 
   /* ═══ HANDLERS ═══ */
   const hAddPc = useCallback(async (p) => {
@@ -1864,19 +1921,21 @@ export default function App() {
       ["brand","model","ref","serial","name","sku","catalog_description","notes"].forEach(k => { if (typeof cleanP[k] === "string") cleanP[k] = cleanP[k].trim(); });
       const payMethod = p.metodo_pago || "Efectivo MXN";
       const isNA = cleanP.fondo_id === "NA";
+      const targetFund = isNA ? (activeFund === "ALL" ? "FIC" : activeFund) : cleanP.fondo_id;
 
       // Cash validation (warning, not blocking)
       if (!isNA && cleanP.entry_type !== "trade_in" && cleanP.cost > 0) {
         const txs = data?.txs || [];
-        const currentCash = txs.reduce((s, t) => t.fondo_id === "FIC" ? s + (t.monto || 0) : s, 0);
+        const currentCash = txs.reduce((s, t) => t.fondo_id === targetFund ? s + (t.monto || 0) : s, 0);
         const availCash = currentCash + newCap;
-        if (cleanP.cost > availCash && !confirm(`⚠️ El fondo tiene ${fmxn(availCash)} pero la pieza cuesta ${fmxn(cleanP.cost)}.\n\nEsto dejará el cash en negativo (${fmxn(availCash - cleanP.cost)}).\n\n¿Continuar de todos modos?`)) return;
+        const fundName = fundInfo[targetFund]?.short || targetFund;
+        if (cleanP.cost > availCash && !confirm(`⚠️ ${fundName} tiene ${fmxn(availCash)} pero la pieza cuesta ${fmxn(cleanP.cost)}.\n\nEsto dejará el cash en negativo (${fmxn(availCash - cleanP.cost)}).\n\n¿Continuar de todos modos?`)) return;
       }
 
-      // Nueva Aportación: register full cost as capital into FIC, then piece goes to FIC
+      // Nueva Aportación: register full cost as capital into target fund
       if (isNA) {
-        await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: cleanP.cost, fondo_id: "FIC", descripcion: `Nueva aportación para ${cleanP.name}`, metodo_pago: payMethod, partner_id: user?.id });
-        cleanP.fondo_id = "FIC";
+        await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: cleanP.cost, fondo_id: targetFund, descripcion: `Nueva aportación para ${cleanP.name}`, metodo_pago: payMethod, partner_id: user?.id });
+        cleanP.fondo_id = targetFund;
       }
       // Combined financing: partial capital injection
       else if (newCap > 0) {
@@ -1954,7 +2013,7 @@ export default function App() {
       const costoReal = cost + gastosPieza;
       const profit = p.xPrice - costoReal;
       await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: p.xType, exit_fund: p.xFund, client_id: p.client_id || null });
-      await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, descripcion: `Venta ${p.name} → ${FUND_INFO[p.xFund]?.short} (Costo: ${fmxn(cost)}${gastosPieza > 0 ? ` + Gastos: ${fmxn(gastosPieza)}` : ""}, Utilidad Real: ${fmxn(profit)})`, metodo_pago: p.payOut });
+      await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, descripcion: `Venta ${p.name} → ${fundInfo[p.xFund]?.short} (Costo: ${fmxn(cost)}${gastosPieza > 0 ? ` + Gastos: ${fmxn(gastosPieza)}` : ""}, Utilidad Real: ${fmxn(profit)})`, metodo_pago: p.payOut });
       showToast(`Venta registrada: ${p.name} — Utilidad Real: ${fmxn(profit)}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
@@ -1997,13 +2056,14 @@ export default function App() {
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, data]);
 
-  const hCap = useCallback(async (amt, desc, partner) => {
+  const hCap = useCallback(async (amt, desc, partner, fund) => {
     try {
-      await db.saveTx({ id: uid(), fecha: td(), tipo: "CAPITAL", monto: amt, fondo_id: "FIC", descripcion: desc || "Inyección de capital", metodo_pago: "Efectivo MXN", partner_id: partner });
-      showToast("Capital registrado");
+      const targetFund = fund || (activeFund === "ALL" ? "FIC" : activeFund);
+      await db.saveTx({ id: uid(), fecha: td(), tipo: "CAPITAL", monto: amt, fondo_id: targetFund, descripcion: desc || "Inyección de capital", metodo_pago: "Efectivo MXN", partner_id: partner });
+      showToast(`Capital registrado en ${fundInfo[targetFund]?.short || targetFund}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
-  }, [refresh, cm]);
+  }, [refresh, cm, activeFund, fundInfo]);
 
   const logout = async () => { await sb.auth.signOut(); setUser(null); setData(null); };
 
@@ -2012,8 +2072,7 @@ export default function App() {
   if (!data) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--nv)" }}><div className="fd text-xl text-white">Cargando datos...</div></div>;
 
   // Check if user is pending activation
-  const myProfile_ = (data.profiles || []).find(p => p.id === user?.id);
-  if (myProfile_?.role === "pending" || myProfile_?.active === false) {
+  if (myProfile?.role === "pending" || myProfile?.active === false) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "linear-gradient(145deg,#060E1A,var(--nv),#0A1525)" }}>
         <div className="w-full max-w-sm text-center">
@@ -2073,8 +2132,27 @@ export default function App() {
               <div><h1 className="fd text-2xl md:text-3xl font-bold text-white">Dashboard</h1></div>
               <div className="flex gap-2"><BtnP onClick={() => setModal("ap")}><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Pieza</span></BtnP><BtnS onClick={() => setModal("ac")}>Capital</BtnS></div>
             </div>
+
+            {/* Fund Tabs */}
+            {myFunds.length > 1 && (
+              <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: "rgba(255,255,255,.03)" }}>
+                {myProfile?.role === "superuser" && (
+                  <button onClick={() => setActiveFund("ALL")} className="fb text-xs font-semibold px-4 py-2 rounded-lg transition-all whitespace-nowrap"
+                    style={activeFund === "ALL" ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
+                    📊 Todos los Fondos
+                  </button>
+                )}
+                {myFunds.map(fk => (
+                  <button key={fk} onClick={() => setActiveFund(fk)} className="fb text-xs font-semibold px-4 py-2 rounded-lg transition-all whitespace-nowrap"
+                    style={activeFund === fk ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
+                    {fundInfo[fk]?.icon || "🏦"} {fundInfo[fk]?.short || fk}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <St label="Total Invertido" value={fmxn(comp.cash + comp.invC)} />
+              <St label={activeFund === "ALL" ? "NAV Global" : "NAV"} value={fmxn(comp.cash + comp.invC)} />
               <St label="Cash en Fondo" value={fmxn(comp.cash)} accent="var(--bl)" />
               <St label="Inventario (Costo)" value={fmxn(comp.invC)} accent="var(--gd)" />
               <St label="Utilidad Realizada" value={fmxn(comp.rp)} sub={comp.cap > 0 ? `${((comp.rp / comp.cap) * 100).toFixed(1)}% del capital` : ""} accent="var(--gn)" />
@@ -2082,7 +2160,7 @@ export default function App() {
             </div>
             {comp.rp !== 0 && (
               <div className="rounded-xl p-4" style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.1)" }}>
-                <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gn)" }}>Distribución de Utilidad (solo ventas directas)</div>
+                <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gn)" }}>{comp.isPersonal ? "Utilidad de tu Fondo Personal" : "Distribución de Utilidad (solo ventas directas)"}</div>
                 <div className={`grid gap-3 text-center`} style={{ gridTemplateColumns: `repeat(${(comp.splits?.length || 0) + 1}, 1fr)` }}>
                   {(comp.splits || []).map(s => (
                     <div key={s.id} className="rounded-xl p-3" style={{ background: `${s.color}11` }}>
@@ -2188,7 +2266,7 @@ export default function App() {
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full"><thead><tr><TH>Pieza</TH><TH>Origen</TH><TH r>Costo</TH><TH r>Lista</TH><TH>Status</TH></tr></thead>
-                  <tbody>{(comp.inv || []).slice(0, 10).map(p => <tr key={p.id} className="hover:bg-white/[.02]"><TD b>{p.name}</TD><TD><Bd text={FUND_INFO[p.fondo_id]?.short || p.fondo_id} v="gold" /></TD><TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD><TD><Bd text={p.status} v="green" /></TD></tr>)}</tbody>
+                  <tbody>{(comp.inv || []).slice(0, 10).map(p => <tr key={p.id} className="hover:bg-white/[.02]"><TD b>{p.name}</TD><TD><Bd text={fundInfo[p.fondo_id]?.short || p.fondo_id} v="gold" /></TD><TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD><TD><Bd text={p.status} v="green" /></TD></tr>)}</tbody>
                 </table>
               </div>
             </Cd>
@@ -2202,6 +2280,13 @@ export default function App() {
               <h1 className="fd text-2xl md:text-3xl font-bold text-white">Inventario</h1>
               <BtnP onClick={() => setModal("ap")}><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Nueva Pieza</span></BtnP>
             </div>
+            {/* Fund tabs */}
+            {myFunds.length > 1 && (
+              <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: "rgba(255,255,255,.03)" }}>
+                {myProfile?.role === "superuser" && <button onClick={() => setActiveFund("ALL")} className="fb text-xs font-semibold px-3 py-2 rounded-lg" style={activeFund === "ALL" ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>Todos</button>}
+                {myFunds.map(fk => <button key={fk} onClick={() => setActiveFund(fk)} className="fb text-xs font-semibold px-3 py-2 rounded-lg whitespace-nowrap" style={activeFund === fk ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>{fundInfo[fk]?.icon} {fundInfo[fk]?.short || fk}</button>)}
+              </div>
+            )}
             <div className="relative"><div className="absolute left-3 top-3" style={{ color: "var(--cd)" }}><Ico d={IC.srch} s={16} /></div><input className="ti" style={{ paddingLeft: 36 }} placeholder="Buscar..." value={q} onChange={e => setQ(e.target.value)} /></div>
             <Cd>
               <div className="overflow-x-auto">
@@ -2211,7 +2296,7 @@ export default function App() {
                       <TD><span className="font-mono text-xs" style={{ color: "var(--cd)" }}>{p.sku || "—"}</span></TD>
                       <TD b>{p.name} {p.publish_catalog && <span title="En catálogo público" style={{ color: "var(--gn)" }}>●</span>}</TD>
                       <TD><Bd text={etLabel(p.entry_type)} v={p.entry_type === "trade_in" ? "gold" : "blue"} /></TD>
-                      <TD><Bd text={FUND_INFO[p.fondo_id]?.short || p.fondo_id || "—"} v="gold" /></TD>
+                      <TD><Bd text={fundInfo[p.fondo_id]?.short || p.fondo_id || "—"} v="gold" /></TD>
                       <TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD>
                       <TD><Bd text={p.status} v={p.status === "Disponible" ? "green" : p.status === "Vendido" ? "purple" : "default"} /></TD>
                       <TD>
@@ -2238,7 +2323,7 @@ export default function App() {
             <Cd>
               <div className="overflow-x-auto">
                 <table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH></tr></thead>
-                  <tbody>{(data.txs || []).map(t => <tr key={t.id} className="hover:bg-white/[.02]"><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={t.tipo} v={t.tipo === "SELL" ? "green" : t.tipo === "BUY" ? "red" : t.tipo === "CAPITAL" ? "blue" : "gold"} /></TD><TD>{t.descripcion}</TD><TD><Bd text={FUND_INFO[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD></tr>)}</tbody>
+                  <tbody>{(data.txs || []).filter(t => activeFund === "ALL" || t.fondo_id === activeFund).map(t => <tr key={t.id} className="hover:bg-white/[.02]"><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={t.tipo} v={t.tipo === "SELL" ? "green" : t.tipo === "BUY" ? "red" : t.tipo === "CAPITAL" ? "blue" : "gold"} /></TD><TD>{t.descripcion}</TD><TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD></tr>)}</tbody>
                 </table>
               </div>
             </Cd>
@@ -2301,11 +2386,11 @@ export default function App() {
       {toast && <div className="fixed bottom-4 right-4 z-50 fb text-sm px-4 py-3 rounded-xl shadow-lg au" style={{ background: toast.type === "ok" ? "#166534" : "rgba(251,113,133,.2)", color: toast.type === "ok" ? "var(--gn)" : "var(--rd)" }}>{toast.msg}</div>}
 
       {/* MODALS */}
-      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile_?.role} /></Md>
-      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile_?.role} />}</Md>
-      <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} clients={data.clients} onSaveClient={async (c) => { await db.saveClient(c); await refresh(); }} costos={data.costos} />}</Md>
+      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} /></Md>
+      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} />}</Md>
+      <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} clients={data.clients} onSaveClient={async (c) => { await db.saveClient(c); await refresh(); }} costos={data.costos} fundInfo={fundInfo} myFunds={myFunds} />}</Md>
       <Md open={modal === "trade"} onClose={cm} title={"Trade-out — " + (sel?.name || "")} wide>{sel && <TradeForm piece={sel} allPieces={data.pieces} onSave={hTrade} onClose={cm} />}</Md>
-      <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} />}</Md>
+      <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} />}</Md>
       <Md open={modal === "ct"} onClose={cm} title="Nuevo Corte Mensual" wide>{<CorteForm onSave={async (c) => {
         try {
           const { _sells, ...corteData } = c;
@@ -2539,14 +2624,25 @@ function CatalogsSection({ data, refresh, showToast, db }) {
   );
 }
 
-function CapitalForm({ onSave, onClose, socios }) {
+function CapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, defaultFund }) {
   const sl = socios || [];
+  const funds = myFunds || ["FIC"];
+  const info = fi || FUND_INFO_BASE;
   const [amt, setAmt] = useState(""); const [desc, setDesc] = useState(""); const [partner, setPartner] = useState(sl[0]?.id || "");
+  const [fund, setFund] = useState(defaultFund || funds[0] || "FIC");
+  const [saving, setSaving] = useState(false);
+  const handleSave = async () => {
+    if (!amt || saving) return;
+    setSaving(true);
+    try { await onSave(Number(amt), desc, partner, fund); } catch(e) { alert("Error: " + e.message); setSaving(false); }
+  };
   return <div className="space-y-4">
+    {funds.length > 1 && <FundSel value={fund} onChange={setFund} label="¿A qué fondo?" funds={funds} fundInfo={info} />}
+    {funds.length === 1 && <div className="fb text-xs p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)", color: "var(--gd)" }}>{info[funds[0]]?.icon} Fondo: {info[funds[0]]?.short}</div>}
     <Fl label="¿Quién inyecta?" req><div className="space-y-2">{sl.map(s => <button key={s.id} type="button" onClick={() => setPartner(s.id)} className="w-full flex items-center gap-3 p-3 rounded-xl" style={{ background: partner === s.id ? "rgba(201,169,110,.1)" : "rgba(255,255,255,.02)", border: partner === s.id ? "1.5px solid var(--gd)" : "1.5px solid rgba(255,255,255,.06)" }}><div className="w-8 h-8 rounded-lg flex items-center justify-center fb text-xs font-bold" style={{ background: `${s.color}20`, color: s.color }}>{s.participacion}%</div><div className="text-left"><div className="fb text-sm font-semibold text-white">{s.name}</div></div>{partner === s.id && <div className="ml-auto" style={{ color: "var(--gd)" }}>✓</div>}</button>)}</div></Fl>
     <Fl label="Monto (MXN)" req><input type="number" className="ti" value={amt} onChange={e => setAmt(e.target.value)} /></Fl>
     <Fl label="Descripción"><input className="ti" value={desc} onChange={e => setDesc(e.target.value)} /></Fl>
-    <div className="flex gap-3"><BtnP onClick={() => { if (amt) onSave(Number(amt), desc, partner); }}>Registrar</BtnP><BtnS onClick={onClose}>Cancelar</BtnS></div>
+    <div className="flex gap-3"><BtnP onClick={handleSave} disabled={saving}>{saving ? "Guardando..." : "Registrar"}</BtnP><BtnS onClick={onClose} disabled={saving}>Cancelar</BtnS></div>
   </div>;
 }
 
