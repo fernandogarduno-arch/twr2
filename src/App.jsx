@@ -2065,6 +2065,28 @@ export default function App() {
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, activeFund, fundInfo]);
 
+  const hRetiro = useCallback(async (amt, desc, partner, fund, motivo) => {
+    try {
+      const targetFund = fund || (activeFund === "ALL" ? "FIC" : activeFund);
+      const txs = data?.txs || [];
+      const fundCash = txs.reduce((s, t) => t.fondo_id === targetFund ? s + (t.monto || 0) : s, 0);
+      if (amt > fundCash && !confirm(`⚠️ El fondo tiene ${fmxn(fundCash)} disponible pero quieres retirar ${fmxn(amt)}.\n\nEsto dejará el cash en negativo.\n\n¿Continuar?`)) return;
+      const label = motivo === "venta" ? "Retiro al vender pieza" : motivo === "total" ? "Retiro total de capital" : "Retiro parcial de capital";
+      await db.saveTx({ id: uid(), fecha: td(), tipo: "RETIRO_CAPITAL", monto: -(amt), fondo_id: targetFund, descripcion: desc || label, metodo_pago: "Efectivo MXN", partner_id: partner });
+      showToast(`Retiro de ${fmxn(amt)} registrado`);
+      await refresh(); cm();
+    } catch (e) { alert("Error: " + e.message); }
+  }, [refresh, cm, activeFund, fundInfo, data]);
+
+  const hCancelRetiro = useCallback(async (tx) => {
+    if (!confirm(`¿Cancelar este retiro?\n\n${tx.descripcion}\nMonto: ${fmxn(Math.abs(tx.monto))}\n\nSe creará una transacción inversa que devuelve el dinero al fondo. El retiro original se conserva en el historial.`)) return;
+    try {
+      await db.saveTx({ id: uid(), fecha: td(), tipo: "CANCEL_RETIRO", monto: Math.abs(tx.monto), fondo_id: tx.fondo_id, descripcion: `↩ Cancelación de retiro: ${tx.descripcion} (TX original: ${tx.id})`, metodo_pago: "Reversión", partner_id: tx.partner_id });
+      showToast(`Retiro cancelado — ${fmxn(Math.abs(tx.monto))} devuelto al fondo`);
+      await refresh();
+    } catch (e) { alert("Error: " + e.message); }
+  }, [refresh]);
+
   const logout = async () => { await sb.auth.signOut(); setUser(null); setData(null); };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--nv)" }}><div className="fd text-2xl font-bold text-white animate-pulse">W</div></div>;
@@ -2130,7 +2152,7 @@ export default function App() {
           <div className="space-y-5 au">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div><h1 className="fd text-2xl md:text-3xl font-bold text-white">Dashboard</h1></div>
-              <div className="flex gap-2"><BtnP onClick={() => setModal("ap")}><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Pieza</span></BtnP><BtnS onClick={() => setModal("ac")}>Capital</BtnS></div>
+              <div className="flex gap-2"><BtnP onClick={() => setModal("ap")}><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Pieza</span></BtnP><BtnS onClick={() => setModal("ac")}>+ Capital</BtnS><BtnS onClick={() => setModal("rc")}>↑ Retiro</BtnS></div>
             </div>
 
             {/* Fund Tabs */}
@@ -2319,12 +2341,33 @@ export default function App() {
         {/* ═══ TRANSACTIONS ═══ */}
         {page === "transactions" && (
           <div className="space-y-5 au">
-            <div className="flex items-center justify-between"><h1 className="fd text-2xl md:text-3xl font-bold text-white">Transacciones</h1><BtnS onClick={() => setModal("ac")}>+ Capital</BtnS></div>
+            <div className="flex items-center justify-between"><h1 className="fd text-2xl md:text-3xl font-bold text-white">Transacciones</h1><div className="flex gap-2"><BtnS onClick={() => setModal("ac")}>+ Capital</BtnS><BtnS onClick={() => setModal("rc")}>↑ Retiro</BtnS></div></div>
             <Cd>
               <div className="overflow-x-auto">
-                <table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH></tr></thead>
-                  <tbody>{(data.txs || []).filter(t => activeFund === "ALL" || t.fondo_id === activeFund).map(t => <tr key={t.id} className="hover:bg-white/[.02]"><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={t.tipo} v={t.tipo === "SELL" ? "green" : t.tipo === "BUY" ? "red" : t.tipo === "CAPITAL" ? "blue" : "gold"} /></TD><TD>{t.descripcion}</TD><TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD></tr>)}</tbody>
-                </table>
+                {(() => {
+                  const filteredTxs = (data.txs || []).filter(t => activeFund === "ALL" || t.fondo_id === activeFund);
+                  const cancelledIds = new Set(filteredTxs.filter(t => t.tipo === "CANCEL_RETIRO").map(t => { const m = (t.descripcion || "").match(/TX original: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
+                  const txLabel = (tipo) => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL" }[tipo] || tipo);
+                  const txColor = (tipo) => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue" }[tipo] || "gold");
+                  return (
+                    <table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH></TH></tr></thead>
+                      <tbody>{filteredTxs.map(t => {
+                        const isRetiro = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL";
+                        const isCancelled = cancelledIds.has(t.id);
+                        return (
+                          <tr key={t.id} className="hover:bg-white/[.02]" style={isCancelled ? { opacity: 0.4, textDecoration: "line-through" } : {}}>
+                            <TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD>
+                            <TD><Bd text={txLabel(t.tipo)} v={txColor(t.tipo)} /></TD>
+                            <TD><span className={isCancelled ? "line-through" : ""}>{t.descripcion}</span>{isCancelled && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD>
+                            <TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD>
+                            <TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD>
+                            <TD>{isRetiro && !isCancelled && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg transition-all hover:bg-white/5" style={{ color: "#FB7185", border: "1px solid rgba(251,113,133,.2)" }} title="Cancelar retiro">↩</button>}</TD>
+                          </tr>
+                        );
+                      })}</tbody>
+                    </table>
+                  );
+                })()}
               </div>
             </Cd>
           </div>
@@ -2391,6 +2434,7 @@ export default function App() {
       <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} clients={data.clients} onSaveClient={async (c) => { await db.saveClient(c); await refresh(); }} costos={data.costos} fundInfo={fundInfo} myFunds={myFunds} />}</Md>
       <Md open={modal === "trade"} onClose={cm} title={"Trade-out — " + (sel?.name || "")} wide>{sel && <TradeForm piece={sel} allPieces={data.pieces} onSave={hTrade} onClose={cm} />}</Md>
       <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} />}</Md>
+      <Md open={modal === "rc"} onClose={cm} title="Retiro de Capital">{<RetiroCapitalForm onSave={hRetiro} onClose={cm} socios={data.socios} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} txs={data.txs} />}</Md>
       <Md open={modal === "ct"} onClose={cm} title="Nuevo Corte Mensual" wide>{<CorteForm onSave={async (c) => {
         try {
           const { _sells, ...corteData } = c;
@@ -2643,6 +2687,74 @@ function CapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, defaultFu
     <Fl label="Monto (MXN)" req><input type="number" className="ti" value={amt} onChange={e => setAmt(e.target.value)} /></Fl>
     <Fl label="Descripción"><input className="ti" value={desc} onChange={e => setDesc(e.target.value)} /></Fl>
     <div className="flex gap-3"><BtnP onClick={handleSave} disabled={saving}>{saving ? "Guardando..." : "Registrar"}</BtnP><BtnS onClick={onClose} disabled={saving}>Cancelar</BtnS></div>
+  </div>;
+}
+
+function RetiroCapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, defaultFund, txs }) {
+  const sl = socios || [];
+  const funds = myFunds || ["FIC"];
+  const info = fi || FUND_INFO_BASE;
+  const [amt, setAmt] = useState("");
+  const [desc, setDesc] = useState("");
+  const [partner, setPartner] = useState(sl[0]?.id || "");
+  const [fund, setFund] = useState(defaultFund || funds[0] || "FIC");
+  const [motivo, setMotivo] = useState("parcial");
+  const [saving, setSaving] = useState(false);
+
+  const cashInFund = (txs || []).reduce((s, t) => t.fondo_id === fund ? s + (t.monto || 0) : s, 0);
+  const capInFund = (txs || []).filter(t => t.fondo_id === fund && t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
+
+  const handleSave = async () => {
+    if (!amt || saving || Number(amt) <= 0) return;
+    setSaving(true);
+    try { await onSave(Number(amt), desc, partner, fund, motivo); } catch(e) { alert("Error: " + e.message); setSaving(false); }
+  };
+
+  return <div className="space-y-4">
+    {funds.length > 1 && <FundSel value={fund} onChange={setFund} label="¿De qué fondo?" funds={funds} fundInfo={info} />}
+    {funds.length === 1 && <div className="fb text-xs p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)", color: "var(--gd)" }}>{info[funds[0]]?.icon} Fondo: {info[funds[0]]?.short}</div>}
+
+    <div className="grid grid-cols-2 gap-3">
+      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}>
+        <div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash Disponible</div>
+        <div className="fd font-bold text-lg text-white">{fmxn(cashInFund)}</div>
+      </div>
+      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(201,169,110,.06)" }}>
+        <div className="fb text-xs" style={{ color: "var(--gd)" }}>Capital Invertido</div>
+        <div className="fd font-bold text-lg text-white">{fmxn(capInFund)}</div>
+      </div>
+    </div>
+
+    <Fl label="Motivo del Retiro" req>
+      <div className="grid grid-cols-3 gap-2">
+        {[{v:"parcial",l:"Retiro Parcial",i:"📤"},{v:"venta",l:"Al Vender Pieza",i:"💰"},{v:"total",l:"Retiro Total",i:"🏦"}].map(m => (
+          <button key={m.v} type="button" onClick={() => { setMotivo(m.v); if (m.v === "total") setAmt(String(Math.max(0, cashInFund))); }}
+            className="p-3 rounded-xl text-center transition-all" style={{ background: motivo === m.v ? "rgba(251,113,133,.1)" : "rgba(255,255,255,.03)", border: motivo === m.v ? "1.5px solid rgba(251,113,133,.3)" : "1.5px solid rgba(255,255,255,.06)" }}>
+            <div className="text-xl mb-1">{m.i}</div>
+            <div className="fb text-xs font-semibold" style={{ color: motivo === m.v ? "#FB7185" : "var(--cd)" }}>{m.l}</div>
+          </button>
+        ))}
+      </div>
+    </Fl>
+
+    <Fl label="¿Quién retira?" req><div className="space-y-2">{sl.map(s => <button key={s.id} type="button" onClick={() => setPartner(s.id)} className="w-full flex items-center gap-3 p-3 rounded-xl" style={{ background: partner === s.id ? "rgba(251,113,133,.1)" : "rgba(255,255,255,.02)", border: partner === s.id ? "1.5px solid rgba(251,113,133,.3)" : "1.5px solid rgba(255,255,255,.06)" }}><div className="w-8 h-8 rounded-lg flex items-center justify-center fb text-xs font-bold" style={{ background: `${s.color}20`, color: s.color }}>{s.participacion}%</div><div className="text-left"><div className="fb text-sm font-semibold text-white">{s.name}</div></div>{partner === s.id && <div className="ml-auto" style={{ color: "#FB7185" }}>✓</div>}</button>)}</div></Fl>
+
+    <Fl label="Monto a Retirar (MXN)" req>
+      <input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={amt} onChange={e => setAmt(e.target.value)} />
+      {Number(amt) > cashInFund && <div className="fb text-xs mt-1 p-2 rounded-lg" style={{ background: "rgba(251,113,133,.08)", color: "var(--rd)" }}>⚠️ Excede el cash disponible ({fmxn(cashInFund)})</div>}
+      {Number(amt) > 0 && Number(amt) <= cashInFund && <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Cash después del retiro: {fmxn(cashInFund - Number(amt))}</div>}
+    </Fl>
+
+    <Fl label="Descripción"><input className="ti" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Motivo del retiro..." /></Fl>
+
+    <div className="flex gap-3">
+      <button type="button" onClick={handleSave} disabled={saving || !amt || Number(amt) <= 0}
+        className="fb px-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:brightness-110 active:scale-[.98] disabled:opacity-40 disabled:cursor-not-allowed"
+        style={{ background: "rgba(251,113,133,.15)", color: "#FB7185", border: "1px solid rgba(251,113,133,.25)" }}>
+        {saving ? "Procesando..." : `Retirar ${amt ? fmxn(Number(amt)) : ""}`}
+      </button>
+      <BtnS onClick={onClose} disabled={saving}>Cancelar</BtnS>
+    </div>
   </div>;
 }
 
