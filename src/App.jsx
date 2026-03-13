@@ -2079,13 +2079,32 @@ export default function App() {
   }, [refresh, cm, activeFund, fundInfo, data]);
 
   const hCancelRetiro = useCallback(async (tx) => {
-    if (!confirm(`¿Cancelar este retiro?\n\n${tx.descripcion}\nMonto: ${fmxn(Math.abs(tx.monto))}\n\nSe creará una transacción inversa que devuelve el dinero al fondo. El retiro original se conserva en el historial.`)) return;
+    if (!confirm(`¿Cancelar este retiro?\n\n${tx.descripcion}\nMonto: ${fmxn(Math.abs(tx.monto))}\n\nSe creará una transacción inversa que devuelve el dinero al fondo.`)) return;
     try {
-      await db.saveTx({ id: uid(), fecha: td(), tipo: "CANCEL_RETIRO", monto: Math.abs(tx.monto), fondo_id: tx.fondo_id, descripcion: `↩ Cancelación de retiro: ${tx.descripcion} (TX original: ${tx.id})`, metodo_pago: "Reversión", partner_id: tx.partner_id });
+      await db.saveTx({ id: uid(), fecha: td(), tipo: "CANCEL_RETIRO", monto: Math.abs(tx.monto), fondo_id: tx.fondo_id, descripcion: `↩ Cancelación: ${tx.descripcion} (ref: ${tx.id})`, metodo_pago: "Reversión", partner_id: tx.partner_id });
       showToast(`Retiro cancelado — ${fmxn(Math.abs(tx.monto))} devuelto al fondo`);
       await refresh();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh]);
+
+  const hCancelCorte = useCallback(async (corte) => {
+    if (!confirm(`¿Cancelar el corte ${corte.periodo}?\n\nSe revertirán los retiros de utilidades (${fmxn(corte.utilidad)}) y el dinero regresará al fondo.\n\nEl corte se marcará como cancelado.`)) return;
+    try {
+      // Find all RETIRO txs for this corte
+      const retiroTxs = (data?.txs || []).filter(t => t.tipo === "RETIRO" && (t.descripcion || "").includes(corte.periodo));
+      for (const tx of retiroTxs) {
+        // Check if not already cancelled
+        const alreadyCancelled = (data?.txs || []).some(ct => ct.tipo === "CANCEL_RETIRO" && (ct.descripcion || "").includes(tx.id));
+        if (!alreadyCancelled) {
+          await db.saveTx({ id: uid(), fecha: td(), tipo: "CANCEL_RETIRO", monto: Math.abs(tx.monto), fondo_id: tx.fondo_id, descripcion: `↩ Cancelación corte ${corte.periodo}: ${tx.descripcion} (ref: ${tx.id})`, metodo_pago: "Reversión", partner_id: tx.partner_id });
+        }
+      }
+      // Update corte to mark as cancelled
+      await sb.from("cortes").update({ decision: "cancelado" }).eq("id", corte.id);
+      showToast(`Corte ${corte.periodo} cancelado — ${fmxn(corte.utilidad)} devuelto al fondo`);
+      await refresh();
+    } catch (e) { alert("Error: " + e.message); }
+  }, [refresh, data]);
 
   const logout = async () => { await sb.auth.signOut(); setUser(null); setData(null); };
 
@@ -2346,22 +2365,22 @@ export default function App() {
               <div className="overflow-x-auto">
                 {(() => {
                   const filteredTxs = (data.txs || []).filter(t => activeFund === "ALL" || t.fondo_id === activeFund);
-                  const cancelledIds = new Set(filteredTxs.filter(t => t.tipo === "CANCEL_RETIRO").map(t => { const m = (t.descripcion || "").match(/TX original: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
-                  const txLabel = (tipo) => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL" }[tipo] || tipo);
-                  const txColor = (tipo) => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue" }[tipo] || "gold");
+                  const cancelledIds = new Set(filteredTxs.filter(t => t.tipo === "CANCEL_RETIRO").map(t => { const m = (t.descripcion || "").match(/ref: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
+                  const txLabel = (t) => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL" }[t] || t);
+                  const txColor = (t) => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue" }[t] || "gold");
                   return (
                     <table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH></TH></tr></thead>
                       <tbody>{filteredTxs.map(t => {
                         const isRetiro = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL";
                         const isCancelled = cancelledIds.has(t.id);
                         return (
-                          <tr key={t.id} className="hover:bg-white/[.02]" style={isCancelled ? { opacity: 0.4, textDecoration: "line-through" } : {}}>
+                          <tr key={t.id} className="hover:bg-white/[.02]" style={isCancelled ? { opacity: 0.4 } : {}}>
                             <TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD>
                             <TD><Bd text={txLabel(t.tipo)} v={txColor(t.tipo)} /></TD>
-                            <TD><span className={isCancelled ? "line-through" : ""}>{t.descripcion}</span>{isCancelled && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD>
+                            <TD><span style={isCancelled ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{isCancelled && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD>
                             <TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD>
                             <TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD>
-                            <TD>{isRetiro && !isCancelled && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg transition-all hover:bg-white/5" style={{ color: "#FB7185", border: "1px solid rgba(251,113,133,.2)" }} title="Cancelar retiro">↩</button>}</TD>
+                            <TD>{isRetiro && !isCancelled && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185", border: "1px solid rgba(251,113,133,.2)" }} title="Cancelar retiro">↩</button>}</TD>
                           </tr>
                         );
                       })}</tbody>
@@ -2378,17 +2397,23 @@ export default function App() {
           <div className="space-y-5 au">
             <div className="flex items-center justify-between"><h1 className="fd text-2xl md:text-3xl font-bold text-white">Cortes Mensuales</h1><BtnP onClick={() => setModal("ct")}>+ Corte</BtnP></div>
             {(data.cortes || []).length === 0 && <Cd className="p-8 text-center"><div className="fb text-sm" style={{ color: "var(--cd)" }}>No hay cortes registrados. Crea el primer corte mensual para controlar utilidades.</div></Cd>}
-            <div className="space-y-3">{(data.cortes || []).map(c => <Cd key={c.id} className="p-4">
-              <div className="flex items-center gap-3 mb-2">
+            <div className="space-y-3">{(data.cortes || []).map(c => <Cd key={c.id} className="p-4" style={c.decision === "cancelado" ? { opacity: 0.5 } : {}}>
+              <div className="flex items-center gap-3 mb-2 flex-wrap">
                 <span className="fb text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>{c.id}</span>
                 <span className="fd font-semibold text-white">{c.periodo}</span>
                 <span className="fb text-sm" style={{ color: "var(--cd)" }}>{c.label}</span>
-                <Bd text={c.decision === "retirar" ? "💰 Retirado" : "🔄 Reinvertido"} v={c.decision === "retirar" ? "green" : "blue"} />
+                <Bd text={c.decision === "retirar" ? "💰 Retirado" : c.decision === "cancelado" ? "❌ Cancelado" : "🔄 Reinvertido"} v={c.decision === "retirar" ? "green" : c.decision === "cancelado" ? "red" : "blue"} />
+                {c.decision === "retirar" && c.utilidad > 0 && (
+                  <button onClick={() => hCancelCorte(c)} className="fb text-xs px-3 py-1 rounded-lg ml-auto transition-all hover:brightness-110" style={{ background: "rgba(251,113,133,.1)", color: "#FB7185", border: "1px solid rgba(251,113,133,.2)" }}>
+                    ↩ Cancelar Retiro
+                  </button>
+                )}
               </div>
               {c.utilidad > 0 && <div className={`grid gap-3 text-center py-2 rounded-xl`} style={{ background: "rgba(255,255,255,.03)", gridTemplateColumns: `repeat(${(data.socios?.length || 0) + 1}, 1fr)` }}>
-                <div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad</span><div className="fd font-bold" style={{ color: "var(--gn)" }}>{fmxn(c.utilidad)}</div></div>
-                {(data.socios || []).map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name}</span><div className="fd font-bold text-white">{fmxn(c.splits?.[s.id] || 0)}</div></div>)}
+                <div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad</span><div className="fd font-bold" style={{ color: c.decision === "cancelado" ? "var(--cd)" : "var(--gn)" }}>{c.decision === "cancelado" ? <s>{fmxn(c.utilidad)}</s> : fmxn(c.utilidad)}</div></div>
+                {(data.socios || []).map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name}</span><div className="fd font-bold text-white" style={c.decision === "cancelado" ? { textDecoration: "line-through", opacity: 0.5 } : {}}>{fmxn(c.splits?.[s.id] || 0)}</div></div>)}
               </div>}
+              {c.decision === "cancelado" && <div className="fb text-xs mt-2 p-2 rounded-lg text-center" style={{ background: "rgba(251,113,133,.06)", color: "var(--rd)" }}>Este corte fue cancelado — los fondos fueron devueltos</div>}
               {c.utilidad === 0 && <div className="fb text-sm" style={{ color: "var(--cd)" }}>Sin utilidad en este periodo</div>}
             </Cd>)}</div>
           </div>
