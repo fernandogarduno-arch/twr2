@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createClient } from "@supabase/supabase-js";
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE WRIST ROOM — OPERATING SYSTEM v13 (SUPABASE + CATALOG)
+   THE WRIST ROOM — OPERATING SYSTEM v20 (SUPABASE + CATALOG + AI + MULTI-FUND)
    ═══════════════════════════════════════════════════════════════════ */
 
 const sb = createClient(
@@ -939,7 +939,7 @@ function LoginScreen({ onLogin }) {
             <span className="block text-lg font-medium tracking-[.3em] mb-1" style={{ color: "var(--gd)" }}>THE</span>WRIST
             <span className="block text-2xl font-medium tracking-[.15em] mt-0.5" style={{ color: "var(--cd)" }}>ROOM</span>
           </div>
-          <div className="fb text-xs mt-4 tracking-widest uppercase" style={{ color: "var(--gk)" }}>Sistema de Administración v13</div>
+          <div className="fb text-xs mt-4 tracking-widest uppercase" style={{ color: "var(--gk)" }}>Sistema de Administración v20</div>
         </div>
         <div className="rounded-2xl p-6" style={{ background: "var(--n2)", border: "1px solid rgba(201,169,110,.12)", boxShadow: "0 20px 60px rgba(0,0,0,.4)" }}>
           {mode === "login" && <>
@@ -2360,6 +2360,7 @@ export default function App() {
             <button onClick={() => setSide(!side)} className="flex-1 text-center py-1.5 rounded-lg text-xs hover:bg-white/5" style={{ color: "var(--cd)" }}>{side ? "◂" : "▸"}</button>
             {side && <button onClick={logout} className="flex-1 py-1.5 rounded-lg text-xs hover:bg-white/5" style={{ color: "var(--rd)" }}>Salir</button>}
           </div>
+          {side && <div className="fb text-center text-xs mt-1" style={{ color: "rgba(245,240,232,.2)" }}>TWR OS v20</div>}
         </div>
       </aside>
 
