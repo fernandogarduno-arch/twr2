@@ -261,7 +261,7 @@ const BtnG=({children,onClick,disabled})=><button type="button" onClick={onClick
 const BtnD=({children,onClick})=><button type="button" onClick={onClick} className="fb px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-900/30" style={{color:"var(--rd)"}}>{children}</button>;
 
 /* ═══ FUND SELECTOR (compact for mobile) ═══ */
-function FundSel({value,onChange,label,funds,fundInfo:fi}){const flist=funds||FUNDS;const info=fi||FUND_INFO_BASE;return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{flist.map(fk=>{const f=info[fk];if(!f)return null;const s=value===fk;return <button key={fk} type="button" onClick={()=>onChange(fk)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(201,169,110,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{f.icon}</span><span className="fb font-semibold text-sm text-white flex-1">{f.short}</span>{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
+function FundSel({value,onChange,label,funds,fundInfo:fi,txs}){const flist=funds||FUNDS;const info=fi||FUND_INFO_BASE;const cashOf=fk=>(txs||[]).reduce((s,t)=>t.fondo_id===fk?s+(t.monto||0):s,0);return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{flist.map(fk=>{const f=info[fk];if(!f)return null;const s=value===fk;const cash=fk!=="NA"?cashOf(fk):null;return <button key={fk} type="button" onClick={()=>onChange(fk)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(201,169,110,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{f.icon}</span><span className="fb font-semibold text-sm text-white flex-1">{f.short}</span>{cash!==null&&<span className="fb text-xs" style={{color:cash>=0?"var(--gn)":"var(--rd)"}}>{fmxn(cash)}</span>}{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
 
 /* ═══ PHOTO UPLOAD COMPONENT ═══ */
 /* ═══ IMAGE CROPPER ═══ */
@@ -990,7 +990,7 @@ function LoginScreen({ onLogin }) {
 /* ═══════════════════════════════════════════════════════════════════
    PIECE FORM — Full form with photos, docs, custom refs
    ═══════════════════════════════════════════════════════════════════ */
-function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier, userRole, fundInfo: fi, myFunds, defaultFund }) {
+function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier, userRole, fundInfo: fi, myFunds, defaultFund, txs: txsProp }) {
   const fundInfo = fi || FUND_INFO_BASE;
   const autoSku = piece?.sku || genSku(allPieces);
   const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: defaultFund || "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "", metodo_pago: "Efectivo MXN", whatsapp_pieza: "", es_referenciada: false, referenciada_por: "", referenciada_comision: 0 };
@@ -1192,7 +1192,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
               <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--bl)" }}>↓ Origen del Recurso</span>
               <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿De dónde sale el dinero?</span>
             </div>
-            <FundSel value={f.fondo_id} onChange={v => { u("fondo_id", v); if (v === "NA") { setCombinedFin(false); setNewCapital(0); } }} funds={[...(myFunds || ["FIC"]), "NA"]} fundInfo={fundInfo} />
+            <FundSel value={f.fondo_id} onChange={v => { u("fondo_id", v); if (v === "NA") { setCombinedFin(false); setNewCapital(0); } }} funds={[...(myFunds || ["FIC"]), "NA"]} fundInfo={fundInfo} txs={txsProp} />
             {f.fondo_id === "NA" && f.cost > 0 && (
               <div className="mt-2 fb text-xs p-3 rounded-lg" style={{ background: "rgba(74,222,128,.06)", color: "var(--gn)" }}>
                 💰 Se registrará una inyección de capital de <strong>{fmxn(f.cost)}</strong> al Fondo de Inversión Compartida (FIC).
@@ -1365,7 +1365,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
 }
 
 /* ═══ SELL FORM ═══ */
-function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, onSaveClient, costos, fundInfo: fi, myFunds }) {
+function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, onSaveClient, costos, fundInfo: fi, myFunds, txs: txsProp }) {
   const fundInfo = fi || FUND_INFO_BASE;
   const [f, sF] = useState({ xPrice: piece.price_asked || 0, xDate: td(), cDate: td(), payOut: "Efectivo MXN", xType: "venta", xFund: piece.fondo_id || "FIC", client_id: "" });
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
@@ -1546,7 +1546,7 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
             <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gn)" }}>↑ Destino del Recurso</span>
             <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿A qué fondo entra el dinero?</span>
           </div>
-          <FundSel value={f.xFund} onChange={v => u("xFund", v)} funds={myFunds || ["FIC"]} fundInfo={fundInfo} />
+          <FundSel value={f.xFund} onChange={v => u("xFund", v)} funds={myFunds || ["FIC"]} fundInfo={fundInfo} txs={txsProp} />
         </div>
       )}
 
@@ -2594,11 +2594,11 @@ export default function App() {
       {toast && <div className="fixed bottom-4 right-4 z-50 fb text-sm px-4 py-3 rounded-xl shadow-lg au" style={{ background: toast.type === "ok" ? "#166534" : "rgba(251,113,133,.2)", color: toast.type === "ok" ? "var(--gn)" : "var(--rd)" }}>{toast.msg}</div>}
 
       {/* MODALS */}
-      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} /></Md>
-      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} />}</Md>
-      <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} clients={data.clients} onSaveClient={async (c) => { await db.saveClient(c); await refresh(); }} costos={data.costos} fundInfo={fundInfo} myFunds={myFunds} />}</Md>
+      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} txs={data.txs} /></Md>
+      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} txs={data.txs} />}</Md>
+      <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} clients={data.clients} onSaveClient={async (c) => { await db.saveClient(c); await refresh(); }} costos={data.costos} fundInfo={fundInfo} myFunds={myFunds} txs={data.txs} />}</Md>
       <Md open={modal === "trade"} onClose={cm} title={"Trade-out — " + (sel?.name || "")} wide>{sel && <TradeForm piece={sel} allPieces={data.pieces} onSave={hTrade} onClose={cm} />}</Md>
-      <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} />}</Md>
+      <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} txs={data.txs} />}</Md>
       <Md open={modal === "rc"} onClose={cm} title="Retiro de Capital">{<RetiroCapitalForm onSave={hRetiro} onClose={cm} socios={data.socios} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} txs={data.txs} />}</Md>
 
       {/* Post-Devolution Action Panel */}
@@ -2870,7 +2870,7 @@ function CatalogsSection({ data, refresh, showToast, db }) {
   );
 }
 
-function CapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, defaultFund }) {
+function CapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, defaultFund, txs }) {
   const sl = socios || [];
   const funds = myFunds || ["FIC"];
   const info = fi || FUND_INFO_BASE;
@@ -2883,7 +2883,7 @@ function CapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, defaultFu
     try { await onSave(Number(amt), desc, partner, fund); } catch(e) { alert("Error: " + e.message); setSaving(false); }
   };
   return <div className="space-y-4">
-    {funds.length > 1 && <FundSel value={fund} onChange={setFund} label="¿A qué fondo?" funds={funds} fundInfo={info} />}
+    {funds.length > 1 && <FundSel value={fund} onChange={setFund} label="¿A qué fondo?" funds={funds} fundInfo={info} txs={txs} />}
     {funds.length === 1 && <div className="fb text-xs p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)", color: "var(--gd)" }}>{info[funds[0]]?.icon} Fondo: {info[funds[0]]?.short}</div>}
     <Fl label="¿Quién inyecta?" req><div className="space-y-2">{sl.map(s => <button key={s.id} type="button" onClick={() => setPartner(s.id)} className="w-full flex items-center gap-3 p-3 rounded-xl" style={{ background: partner === s.id ? "rgba(201,169,110,.1)" : "rgba(255,255,255,.02)", border: partner === s.id ? "1.5px solid var(--gd)" : "1.5px solid rgba(255,255,255,.06)" }}><div className="w-8 h-8 rounded-lg flex items-center justify-center fb text-xs font-bold" style={{ background: `${s.color}20`, color: s.color }}>{s.participacion}%</div><div className="text-left"><div className="fb text-sm font-semibold text-white">{s.name}</div></div>{partner === s.id && <div className="ml-auto" style={{ color: "var(--gd)" }}>✓</div>}</button>)}</div></Fl>
     <Fl label="Monto (MXN)" req><input type="number" className="ti" value={amt} onChange={e => setAmt(e.target.value)} /></Fl>
@@ -2900,7 +2900,7 @@ function RetiroCapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, def
   const cap = (txs || []).filter(t => t.fondo_id === fund && t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
   const go = async () => { if (!amt || saving || Number(amt) <= 0) return; setSaving(true); try { await onSave(Number(amt), desc, partner, fund, motivo); } catch(e) { alert(e.message); setSaving(false); } };
   return <div className="space-y-4">
-    {funds.length > 1 && <FundSel value={fund} onChange={setFund} label="¿De qué fondo?" funds={funds} fundInfo={info} />}
+    {funds.length > 1 && <FundSel value={fund} onChange={setFund} label="¿De qué fondo?" funds={funds} fundInfo={info} txs={txs} />}
     <div className="grid grid-cols-2 gap-3">
       <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash</div><div className="fd font-bold text-lg text-white">{fmxn(cash)}</div></div>
       <div className="rounded-xl p-3 text-center" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Capital</div><div className="fd font-bold text-lg text-white">{fmxn(cap)}</div></div>
