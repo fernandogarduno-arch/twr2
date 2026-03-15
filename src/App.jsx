@@ -76,7 +76,7 @@ const db = {
     const { data } = await sb.from("transaccion_docs").select("*").eq("entidad_tipo", entType).eq("entidad_id", entId);
     return data || [];
   },
-  async savePiece(p) { const clean = { ...p }; ["supplier_id", "ref_id", "socio_aporta_id", "client_id", "validated_by", "exit_fund", "trade_ref", "devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); if (clean.fondo_id === "" || clean.fondo_id === "NA") clean.fondo_id = "FIC"; const { error } = await sb.from("piezas").upsert(clean); if (error) throw error; },
+  async savePiece(p) { const clean = { ...p }; ["supplier_id", "ref_id", "socio_aporta_id", "client_id", "validated_by", "exit_fund", "trade_ref", "devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { if (k in clean) clean[k] = Number(clean[k]) || 0; }); if (clean.fondo_id === "" || clean.fondo_id === "NA") clean.fondo_id = "FIC"; const { error } = await sb.from("piezas").upsert(clean); if (error) throw error; },
   async saveTx(t) { const { error } = await sb.from("transacciones").upsert(t); if (error) throw error; },
   async saveCorte(c) { const { error } = await sb.from("cortes").upsert(c); if (error) throw error; },
   async saveClient(c) { const { error } = await sb.from("clientes").upsert(c); if (error) throw error; },
@@ -2042,6 +2042,8 @@ export default function App() {
       ["brand","model","ref","serial","name","sku","catalog_description","notes"].forEach(k => { if (typeof cleanP[k] === "string") cleanP[k] = cleanP[k].trim(); });
       // Clean FK fields (empty string → null)
       ["supplier_id","ref_id","socio_aporta_id","client_id","validated_by","exit_fund","trade_ref","devolucion_de"].forEach(k => { if (cleanP[k] === "" || cleanP[k] === undefined) cleanP[k] = null; });
+      // Force numeric on money fields
+      ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { cleanP[k] = Number(cleanP[k]) || 0; });
       const payMethod = p.metodo_pago || "Efectivo MXN";
       const isNA = cleanP.fondo_id === "NA";
       const targetFund = isNA ? (activeFund === "ALL" ? "FIC" : activeFund) : cleanP.fondo_id;
@@ -2074,7 +2076,7 @@ export default function App() {
         catch (fe) { console.error("Foto save error:", fe); }
       }
 
-      await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: cleanP.entry_type === "trade_in" ? "TRADE" : "BUY", pieza_id: cleanP.id, monto: cleanP.entry_type === "trade_in" ? 0 : -(cleanP.cost || 0), fondo_id: cleanP.fondo_id, descripcion: `${etLabel(cleanP.entry_type)} — ${cleanP.name}`, metodo_pago: cleanP.entry_type === "trade_in" ? "Trade" : payMethod });
+      await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: cleanP.entry_type === "trade_in" ? "TRADE" : "BUY", pieza_id: cleanP.id, monto: cleanP.entry_type === "trade_in" ? 0 : -(Number(cleanP.cost) || 0), fondo_id: cleanP.fondo_id, descripcion: `${etLabel(cleanP.entry_type)} — ${cleanP.name}`, metodo_pago: cleanP.entry_type === "trade_in" ? "Trade" : payMethod });
       showToast(`${cleanP.name} registrada${pendingFotos.length ? ` con ${pendingFotos.length} foto(s)` : ""}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
@@ -2085,6 +2087,7 @@ export default function App() {
       const cleanP = { ...p }; delete cleanP._newCapital; delete cleanP._pendingFotos; delete cleanP.metodo_pago;
       ["brand","model","ref","serial","name","sku","catalog_description","notes"].forEach(k => { if (typeof cleanP[k] === "string") cleanP[k] = cleanP[k].trim(); });
       ["supplier_id","ref_id","socio_aporta_id","client_id","validated_by","exit_fund","trade_ref","devolucion_de"].forEach(k => { if (cleanP[k] === "" || cleanP[k] === undefined) cleanP[k] = null; });
+      ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { cleanP[k] = Number(cleanP[k]) || 0; });
       // Track edits
       const old = data?.pieces?.find(op => op.id === cleanP.id);
       if (old) {
