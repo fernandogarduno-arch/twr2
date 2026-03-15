@@ -2008,6 +2008,8 @@ export default function App() {
     }, 0);
 
     const cap = fTxs.filter(t => t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
+    const distributions = Math.abs(fTxs.filter(t => t.tipo === "RETIRO_CAPITAL" || t.tipo === "RETIRO").reduce((s, t) => s + (t.monto || 0), 0))
+      - fTxs.filter(t => t.tipo === "CANCEL_RETIRO").reduce((s, t) => s + (t.monto || 0), 0);
     const socios = data.socios || [];
 
     // For personal funds, splits don't apply — owner gets 100%
@@ -2015,9 +2017,9 @@ export default function App() {
     const isPersonal = currentFondo?.tipo === "personal";
 
     return {
-      inv, sold, invC, cash, rp, cap, gastosOf, isPersonal, activeFundName: fundInfo[af]?.short || af,
+      inv, sold, invC, cash, rp, cap, distributions, gastosOf, isPersonal, activeFundName: fundInfo[af]?.short || af,
       nav: cash + invC,
-      moic: cap > 0 ? (cash + invC) / cap : 0,
+      moic: cap > 0 ? (cash + invC + distributions) / cap : 0,
       socios,
       splits: isPersonal ? [{ id: "owner", name: currentFondo?.nombre || "Propietario", participacion: 100, color: "#C9A96E", share: rp }]
         : socios.map(s => ({ ...s, share: Math.round(rp * (Number(s.participacion) / 100)) })),
@@ -2397,7 +2399,7 @@ export default function App() {
               <St label="Cash en Fondo" value={fmxn(comp.cash)} accent="var(--bl)" />
               <St label="Inventario (Costo)" value={fmxn(comp.invC)} accent="var(--gd)" />
               <St label="Utilidad Realizada" value={fmxn(comp.rp)} sub={comp.cap > 0 ? `${((comp.rp / comp.cap) * 100).toFixed(1)}% del capital` : ""} accent="var(--gn)" />
-              <St label="MOIC" value={`${(comp.moic || 0).toFixed(2)}x`} accent="var(--pr)" />
+              <St label="MOIC" value={`${(comp.moic || 0).toFixed(2)}x`} sub={comp.distributions > 0 ? `${fmxn(comp.distributions)} retornado` : ""} accent={comp.moic >= 1 ? "var(--gn)" : "var(--pr)"} />
             </div>
             {comp.rp !== 0 && (
               <div className="rounded-xl p-4" style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.1)" }}>
@@ -2590,14 +2592,44 @@ export default function App() {
           const gOf = pid => gc.filter(c => c.pieza_id === pid).reduce((s, c) => s + (Number(c.monto) || 0), 0);
           const bef = txFrom ? allTx.filter(t => t.fecha < txFrom) : [];
           const cI = bef.reduce((s, t) => s + (t.monto || 0), 0);
-          const bB = bef.filter(t => t.tipo === "BUY").map(t => t.pieza_id), sB = bef.filter(t => t.tipo === "SELL").map(t => t.pieza_id);
-          const iB = txFrom ? allPs.filter(p => bB.includes(p.id) && !sB.includes(p.id)) : []; const iBC = iB.reduce((s, p) => s + (p.cost || 0), 0);
+
+          // Inventory at a specific date: determine each piece's state at that point in time
+          const invAt = (date) => {
+            if (!date) return [];
+            const txBef = allTx.filter(t => t.fecha <= date);
+            // Track which trade_refs have been devolved before this date
+            const devolvedRefs = new Set(txBef.filter(t => t.tipo === "DEVOLUCION").map(t => t.trade_ref).filter(Boolean));
+            return allPs.filter(p => {
+              if (p.status === "Corregido") return false;
+              const entryDate = p.entry_date || p.created_at?.slice(0, 10);
+              if (!entryDate || entryDate > date) return false;
+
+              // If piece is Devuelto and its trade was devolved before this date, it's out
+              if (p.status === "Devuelto" && p.trade_ref && devolvedRefs.has(p.trade_ref)) return false;
+
+              const pTxs = txBef.filter(t => t.pieza_id === p.id);
+              let inInv = true;
+              for (const t of pTxs) {
+                if (t.tipo === "SELL") inInv = false;
+                else if (t.tipo === "TRADE" && t.descripcion?.startsWith("Trade ")) inInv = false;
+                else if (t.tipo === "DEVOLUCION" && t.monto === 0) inInv = true;
+                else if (t.tipo === "CORRECCION") inInv = false;
+              }
+              return inInv;
+            });
+          };
+          // Inventory BEFORE period start (for "Posición Inicial")
+          const iB = txFrom ? invAt((() => { const d = new Date(txFrom); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })()) : [];
+          const iBC = iB.reduce((s, p) => s + (Number(p.cost) || 0), 0);
+          // Inventory AT period end (for "Posición Final")
+          const iE = txTo ? invAt(txTo) : allPs.filter(p => p.status === "Disponible");
+          const iEC = iE.reduce((s, p) => s + (Number(p.cost) || 0), 0);
+
           const act = {}; fil.forEach(t => { const k = t.tipo; if (!act[k]) act[k] = { n: 0, i: 0, o: 0 }; act[k].n++; if (t.monto > 0) act[k].i += t.monto; else act[k].o += Math.abs(t.monto); });
           const AL = { CAPITAL: { l: "Capital", i: "💰", c: "var(--bl)" }, BUY: { l: "Compras", i: "🛒", c: "var(--rd)" }, SELL: { l: "Ventas", i: "💵", c: "var(--gn)" }, TRADE: { l: "Trades", i: "🔄", c: "var(--gd)" }, RETIRO: { l: "Retiros Util.", i: "📤", c: "#FB7185" }, RETIRO_CAPITAL: { l: "Retiro Cap.", i: "↑", c: "#FB7185" }, CANCEL_RETIRO: { l: "Cancel.", i: "↩", c: "var(--bl)" }, DEVOLUCION: { l: "Devol.", i: "↩", c: "var(--gd)" }, CORRECCION: { l: "Correcciones", i: "⊘", c: "#F59E0B" } };
-          const cF = cI + fil.reduce((s, t) => s + (t.monto || 0), 0);
-          const iN = allPs.filter(p => p.status === "Disponible"), iNC = iN.reduce((s, p) => s + (p.cost || 0), 0);
+          const cF = txTo ? allTx.filter(t => t.fecha <= txTo).reduce((s, t) => s + (t.monto || 0), 0) : allTx.reduce((s, t) => s + (t.monto || 0), 0);
           const sP = fil.filter(t => t.tipo === "SELL");
-          const uP = sP.reduce((s, t) => { const p = allPs.find(pc => pc.id === t.pieza_id); return p ? s + (t.monto - (p.cost || 0) - gOf(t.pieza_id)) : s; }, 0);
+          const uP = sP.reduce((s, t) => { const p = allPs.find(pc => pc.id === t.pieza_id); return p ? s + (t.monto - (Number(p.cost) || 0) - gOf(t.pieza_id)) : s; }, 0);
           const exportPDF = () => {
             const fl = activeFund === "ALL" ? "Todos" : (fundInfo[activeFund]?.short || activeFund), pl = txFrom && txTo ? `${txFrom} al ${txTo}` : "Histórico";
             let h = `<html><head><meta charset="UTF-8"><title>TWR Reporte</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;padding:40px;color:#1a1a2e;font-size:11px}h1{font-size:22px}h2{font-size:13px;color:#666;margin-bottom:20px}.hd{display:flex;justify-content:space-between;margin-bottom:25px;padding-bottom:12px;border-bottom:2px solid #C9A96E}.bl{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px}.bl>div{padding:10px;border-radius:8px;text-align:center;background:#f8f9fa;border:1px solid #e9ecef}.lb{font-size:9px;color:#666;text-transform:uppercase}.vl{font-size:15px;font-weight:700}.sc{margin:15px 0 8px;font-size:11px;font-weight:700;color:#C9A96E;text-transform:uppercase}table{width:100%;border-collapse:collapse}th{text-align:left;padding:6px;border-bottom:2px solid #C9A96E;font-size:9px;text-transform:uppercase;color:#666}td{padding:5px 6px;border-bottom:1px solid #eee;font-size:10px}.r{text-align:right}.b{font-weight:600}.cx{opacity:.4;text-decoration:line-through}.gn{color:#16a34a}.rd{color:#dc2626}.ft{margin-top:25px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}</style></head><body>`;
@@ -2605,7 +2637,7 @@ export default function App() {
             if (txFrom) h += `<div class="sc">Inicio</div><div class="bl"><div><div class="lb">Cash</div><div class="vl">${fmxn(cI)}</div></div><div><div class="lb">Inventario</div><div class="vl">${fmxn(iBC)} (${iB.length})</div></div><div><div class="lb">NAV</div><div class="vl">${fmxn(cI+iBC)}</div></div></div>`;
             h += `<div class="sc">Actividad</div><div class="bl" style="grid-template-columns:repeat(4,1fr)">`;
             Object.entries(act).forEach(([k,v]) => { h += `<div><div class="lb">${AL[k]?.l||k} (${v.n})</div><div class="vl">${v.i>0?`<span class="gn">+${fmxn(v.i)}</span> `:""}${v.o>0?`<span class="rd">-${fmxn(v.o)}</span>`:""}</div></div>`; });
-            h += `</div><div class="sc">Cierre</div><div class="bl"><div><div class="lb">Cash</div><div class="vl">${fmxn(cF)}</div></div><div><div class="lb">Inventario (${iN.length})</div><div class="vl">${fmxn(iNC)}</div></div><div><div class="lb">NAV</div><div class="vl" style="color:${cF+iNC>=0?"#16a34a":"#dc2626"}">${fmxn(cF+iNC)}</div></div></div>`;
+            h += `</div><div class="sc">Cierre</div><div class="bl"><div><div class="lb">Cash</div><div class="vl">${fmxn(cF)}</div></div><div><div class="lb">Inventario (${iE.length})</div><div class="vl">${fmxn(iEC)}</div></div><div><div class="lb">NAV</div><div class="vl" style="color:${cF+iEC>=0?"#16a34a":"#dc2626"}">${fmxn(cF+iEC)}</div></div></div>`;
             if (uP !== 0) { h += `<div class="sc">Utilidad: ${fmxn(uP)}</div><div class="bl" style="grid-template-columns:repeat(${socios.length},1fr)">`; socios.forEach(s => { h += `<div><div class="lb">${s.name} ${s.participacion}%</div><div class="vl gn">${fmxn(Math.round(uP*s.participacion/100))}</div></div>`; }); h += `</div>`; }
             h += `<div class="sc">Detalle (${fil.length})</div><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Desc</th><th class="r">Cargo</th><th class="r">Abono</th><th class="r">Saldo</th></tr></thead><tbody>`;
             let rn = cI; fil.forEach(t => { rn += (t.monto||0); h += `<tr${cIds.has(t.id)?' class="cx"':''}><td>${t.fecha}</td><td>${txL(t.tipo)}</td><td>${(t.descripcion||"").replace(/</g,"&lt;")}</td><td class="r rd">${t.monto<0?fmxn(Math.abs(t.monto)):""}</td><td class="r gn">${t.monto>=0?fmxn(t.monto):""}</td><td class="r b">${fmxn(rn)}</td></tr>`; });
@@ -2626,9 +2658,9 @@ export default function App() {
               {Object.entries(act).map(([k, v]) => { const inf = AL[k] || { l: k, i: "📋", c: "var(--cd)" }; return <div key={k} className="rounded-xl p-3" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}><div className="flex items-center gap-2 mb-1"><span>{inf.i}</span><span className="fb text-xs font-semibold" style={{ color: inf.c }}>{inf.l}</span></div><div className="fb text-xs" style={{ color: "var(--cd)" }}>{v.n} op.</div><div className="flex gap-2">{v.i > 0 && <span className="fb text-xs" style={{ color: "var(--gn)" }}>+{fmxn(v.i)}</span>}{v.o > 0 && <span className="fb text-xs" style={{ color: "var(--rd)" }}>-{fmxn(v.o)}</span>}</div></div>; })}
             </div></Cd>
             <Cd className="p-4"><div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gn)" }}>📈 {txFrom ? `Posición al ${txTo || td()}` : "Estado Actual"}</div><div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
-              <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>NAV</div><div className="fd font-bold text-xl" style={{ color: cF+iNC >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(cF + iNC)}</div></div>
-              <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash</div><div className="fd font-bold text-xl text-white">{fmxn(cF)}</div></div>
-              <div><div className="fb text-xs" style={{ color: "var(--gd)" }}>Inventario ({iN.length})</div><div className="fd font-bold text-xl text-white">{fmxn(iNC)}</div></div>
+              <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>NAV</div><div className="fd font-bold text-xl" style={{ color: cF+iEC >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(cF + iEC)}</div>{txFrom && <div className="fb text-xs mt-0.5" style={{ color: (cF+iEC)-(cI+iBC) >= 0 ? "var(--gn)" : "var(--rd)" }}>{(cF+iEC)-(cI+iBC) >= 0 ? "+" : ""}{fmxn((cF+iEC)-(cI+iBC))}</div>}</div>
+              <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash</div><div className="fd font-bold text-xl text-white">{fmxn(cF)}</div>{txFrom && <div className="fb text-xs mt-0.5" style={{ color: cF-cI >= 0 ? "var(--gn)" : "var(--rd)" }}>{cF-cI >= 0 ? "+" : ""}{fmxn(cF-cI)}</div>}</div>
+              <div><div className="fb text-xs" style={{ color: "var(--gd)" }}>Inventario ({iE.length})</div><div className="fd font-bold text-xl text-white">{fmxn(iEC)}</div>{txFrom && <div className="fb text-xs mt-0.5" style={{ color: iEC-iBC >= 0 ? "var(--gn)" : "var(--rd)" }}>{iEC-iBC >= 0 ? "+" : ""}{fmxn(iEC-iBC)}</div>}</div>
               <div><div className="fb text-xs" style={{ color: uP >= 0 ? "var(--gn)" : "var(--rd)" }}>Utilidad</div><div className="fd font-bold text-xl" style={{ color: uP >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(uP)}</div></div>
               <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Vendidas</div><div className="fd font-bold text-xl text-white">{sP.length}</div></div>
             </div>
