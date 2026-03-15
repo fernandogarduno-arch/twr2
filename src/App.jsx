@@ -2388,9 +2388,66 @@ export default function App() {
         )}
 
         {/* ═══ TRANSACTIONS ═══ */}
-        {page === "transactions" && (
-          <div className="space-y-5 au">
-            <div className="flex items-center justify-between flex-wrap gap-3"><h1 className="fd text-2xl md:text-3xl font-bold text-white">Estado de Cuenta</h1><div className="flex gap-2"><BtnS onClick={() => setModal("ac")}>+ Capital</BtnS><BtnS onClick={() => setModal("rc")}>↑ Retiro</BtnS></div></div>
+        {page === "transactions" && (() => {
+          const allTx = (data.txs || []).filter(t => activeFund === "ALL" || t.fondo_id === activeFund).sort((a, b) => a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0);
+          const allPs = (data.pieces || []).filter(p => activeFund === "ALL" || p.fondo_id === activeFund);
+          const filtered = allTx.filter(t => (!txFrom || t.fecha >= txFrom) && (!txTo || t.fecha <= txTo));
+          const cIds = new Set(allTx.filter(t => t.tipo === "CANCEL_RETIRO" || t.tipo === "DEVOLUCION").map(t => { const m = (t.descripcion || "").match(/ref: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
+          const txL = t => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL", DEVOLUCION: "↩ DEVOL" }[t] || t);
+          const txC = t => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue", DEVOLUCION: "gold", TRADE: "gold" }[t] || "gold");
+          const socios = data.socios || [];
+          const allCostos = data.costos || [];
+          const gastosOf = (pid) => allCostos.filter(c => c.pieza_id === pid).reduce((s, c) => s + (Number(c.monto) || 0), 0);
+
+          const txsBefore = txFrom ? allTx.filter(t => t.fecha < txFrom) : [];
+          const cashBefore = txsBefore.reduce((s, t) => s + (t.monto || 0), 0);
+          const buysBefore = txsBefore.filter(t => t.tipo === "BUY").map(t => t.pieza_id);
+          const sellsBefore = txsBefore.filter(t => t.tipo === "SELL").map(t => t.pieza_id);
+          const invBefore = txFrom ? allPs.filter(p => buysBefore.includes(p.id) && !sellsBefore.includes(p.id)) : [];
+          const invCostBefore = invBefore.reduce((s, p) => s + (p.cost || 0), 0);
+          const navBefore = cashBefore + invCostBefore;
+
+          const byType = (tipo) => filtered.filter(t => t.tipo === tipo).reduce((s, t) => s + (t.monto || 0), 0);
+          const capital = byType("CAPITAL"); const buys = byType("BUY"); const sells = byType("SELL");
+          const trades = filtered.filter(t => t.tipo === "TRADE").reduce((s, t) => s + (t.monto || 0), 0);
+          const retiros = Math.abs(filtered.filter(t => t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL").reduce((s, t) => s + (t.monto || 0), 0));
+          const cancels = filtered.filter(t => t.tipo === "CANCEL_RETIRO").reduce((s, t) => s + (t.monto || 0), 0);
+          const devols = filtered.filter(t => t.tipo === "DEVOLUCION").reduce((s, t) => s + (t.monto || 0), 0);
+
+          const cashNow = allTx.filter(t => !txTo || t.fecha <= txTo).reduce((s, t) => s + (t.monto || 0), 0);
+          const invNow = allPs.filter(p => p.status === "Disponible");
+          const invCostNow = invNow.reduce((s, p) => s + (p.cost || 0), 0);
+          const navNow = cashNow + invCostNow;
+          const soldInPeriod = filtered.filter(t => t.tipo === "SELL");
+          const profitPeriod = soldInPeriod.reduce((s, t) => { const p = allPs.find(pc => pc.id === t.pieza_id); return s + ((t.monto || 0) - (p?.cost || 0) - gastosOf(t.pieza_id)); }, 0);
+
+          const exportPDF = () => {
+            const fl = activeFund === "ALL" ? "Todos los Fondos" : (fundInfo[activeFund]?.short || activeFund);
+            const pl = txFrom && txTo ? `${txFrom} al ${txTo}` : txFrom ? `Desde ${txFrom}` : txTo ? `Hasta ${txTo}` : "Histórico completo";
+            let h = `<html><head><meta charset="UTF-8"><title>Estado de Cuenta — TWR</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;padding:40px;color:#1a1a2e;font-size:11px}h1{font-size:22px}h2{font-size:13px;color:#666;margin-bottom:20px}.hdr{display:flex;justify-content:space-between;margin-bottom:25px;padding-bottom:12px;border-bottom:2px solid #C9A96E}.bl{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px}.bl>div{padding:10px;border-radius:8px;text-align:center;background:#f8f9fa;border:1px solid #e9ecef}.bl .lb{font-size:9px;color:#666;text-transform:uppercase}.bl .vl{font-size:15px;font-weight:700}.sec{margin:15px 0 8px;font-size:11px;font-weight:700;color:#C9A96E;text-transform:uppercase;letter-spacing:.5px}table{width:100%;border-collapse:collapse}th{text-align:left;padding:6px;border-bottom:2px solid #C9A96E;font-size:9px;text-transform:uppercase;color:#666}td{padding:5px 6px;border-bottom:1px solid #eee;font-size:10px}.r{text-align:right}.b{font-weight:600}.cx{opacity:.4;text-decoration:line-through}.gn{color:#16a34a}.rd{color:#dc2626}.ft{margin-top:25px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}.splt{display:grid;gap:10px;margin-top:10px}.splt>div{padding:8px;border-radius:6px;text-align:center;background:#f0fdf4;border:1px solid #dcfce7}</style></head><body>`;
+            h += `<div class="hdr"><div><h1>The Wrist Room</h1><h2>Estado de Cuenta — ${fl}</h2><div style="font-size:11px">${pl}</div></div><div style="text-align:right;font-size:10px;color:#666">Generado: ${new Date().toLocaleString("es-MX")}</div></div>`;
+            if (txFrom) { h += `<div class="sec">Posición Inicial</div><div class="bl"><div><div class="lb">NAV</div><div class="vl">${fmxn(navBefore)}</div></div><div><div class="lb">Cash</div><div class="vl">${fmxn(cashBefore)}</div></div><div><div class="lb">Inventario</div><div class="vl">${fmxn(invCostBefore)}</div></div></div>`; }
+            h += `<div class="sec">Movimientos del Periodo</div><div class="bl" style="grid-template-columns:repeat(4,1fr)"><div><div class="lb">Capital</div><div class="vl gn">+${fmxn(capital)}</div></div><div><div class="lb">Compras</div><div class="vl rd">${fmxn(buys)}</div></div><div><div class="lb">Ventas</div><div class="vl gn">+${fmxn(sells)}</div></div><div><div class="lb">Trades</div><div class="vl">${fmxn(trades)}</div></div></div>`;
+            h += `<div class="sec">Posición Final</div><div class="bl"><div><div class="lb">NAV</div><div class="vl" style="color:${navNow>=0?"#16a34a":"#dc2626"}">${fmxn(navNow)}</div></div><div><div class="lb">Cash</div><div class="vl">${fmxn(cashNow)}</div></div><div><div class="lb">Inventario (${invNow.length} pzs)</div><div class="vl">${fmxn(invCostNow)}</div></div></div>`;
+            if (profitPeriod !== 0) { h += `<div class="sec">Utilidad del Periodo: ${fmxn(profitPeriod)}</div><div class="splt" style="grid-template-columns:repeat(${socios.length},1fr)">${socios.map(s => `<div><div class="lb">${s.name} ${s.participacion}%</div><div class="vl gn">${fmxn(Math.round(profitPeriod * s.participacion / 100))}</div></div>`).join("")}</div>`; }
+            h += `<div class="sec" style="margin-top:20px">Detalle de Movimientos (${filtered.length})</div>`;
+            h += `<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th class="r">Cargo</th><th class="r">Abono</th><th class="r">Saldo</th></tr></thead><tbody>`;
+            let run = cashBefore;
+            filtered.forEach(t => { run += (t.monto || 0); const cx = cIds.has(t.id); h += `<tr${cx?' class="cx"':''}><td>${t.fecha}</td><td>${txL(t.tipo)}</td><td>${(t.descripcion||"").replace(/</g,"&lt;")}</td><td class="r rd">${t.monto<0?fmxn(Math.abs(t.monto)):""}</td><td class="r gn">${t.monto>=0?fmxn(t.monto):""}</td><td class="r b">${fmxn(run)}</td></tr>`; });
+            h += `</tbody></table><div class="ft">The Wrist Room · Mérida, Yucatán · ${filtered.length} movimientos · ${pl}</div></body></html>`;
+            const w = window.open("", "_blank"); w.document.write(h); w.document.close(); setTimeout(() => w.print(), 500);
+          };
+
+          return <div className="space-y-5 au">
+            {/* Header with PDF export */}
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <h1 className="fd text-2xl md:text-3xl font-bold text-white">Estado de Cuenta</h1>
+              <div className="flex gap-2">
+                <button onClick={exportPDF} className="fb text-xs px-4 py-2.5 rounded-xl font-semibold" style={{ background: "rgba(201,169,110,.15)", color: "var(--cr)", border: "1px solid rgba(201,169,110,.2)" }}>📄 Exportar PDF</button>
+                <BtnS onClick={() => setModal("ac")}>+ Capital</BtnS>
+                <BtnS onClick={() => setModal("rc")}>↑ Retiro</BtnS>
+              </div>
+            </div>
 
             {/* Period filter */}
             <div className="flex gap-3 items-end flex-wrap">
@@ -2402,131 +2459,59 @@ export default function App() {
               {(txFrom || txTo) && <button onClick={() => { setTxFrom(""); setTxTo(""); }} className="fb text-xs px-3 py-2 rounded-lg" style={{ color: "var(--rd)", background: "rgba(251,113,133,.08)" }}>✕ Limpiar</button>}
             </div>
 
-            {(() => {
-              const allTx = (data.txs || []).filter(t => activeFund === "ALL" || t.fondo_id === activeFund).sort((a, b) => a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0);
-              const allPs = (data.pieces || []).filter(p => activeFund === "ALL" || p.fondo_id === activeFund);
-              const filtered = allTx.filter(t => (!txFrom || t.fecha >= txFrom) && (!txTo || t.fecha <= txTo));
-              const cIds = new Set(allTx.filter(t => t.tipo === "CANCEL_RETIRO" || t.tipo === "DEVOLUCION").map(t => { const m = (t.descripcion || "").match(/ref: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
-              const txL = t => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL", DEVOLUCION: "↩ DEVOL" }[t] || t);
-              const txC = t => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue", DEVOLUCION: "gold", TRADE: "gold" }[t] || "gold");
-              const socios = data.socios || [];
-              const allCostos = data.costos || [];
-              const gastosOf = (pid) => allCostos.filter(c => c.pieza_id === pid).reduce((s, c) => s + (Number(c.monto) || 0), 0);
-
-              // === INVESTMENT SNAPSHOT CALCULATIONS ===
-              // Before period: state of investment at start
-              const txsBefore = txFrom ? allTx.filter(t => t.fecha < txFrom) : [];
-              const cashBefore = txsBefore.reduce((s, t) => s + (t.monto || 0), 0);
-              // Pieces that existed before the period (bought before, not sold before)
-              const buysBefore = txsBefore.filter(t => t.tipo === "BUY").map(t => t.pieza_id);
-              const sellsBefore = txsBefore.filter(t => t.tipo === "SELL").map(t => t.pieza_id);
-              const invBefore = txFrom ? allPs.filter(p => buysBefore.includes(p.id) && !sellsBefore.includes(p.id)) : [];
-              const invCostBefore = invBefore.reduce((s, p) => s + (p.cost || 0), 0);
-              const navBefore = cashBefore + invCostBefore;
-
-              // Period movements by type
-              const byType = (tipo) => filtered.filter(t => t.tipo === tipo).reduce((s, t) => s + (t.monto || 0), 0);
-              const capital = byType("CAPITAL");
-              const buys = byType("BUY");
-              const sells = byType("SELL");
-              const trades = filtered.filter(t => t.tipo === "TRADE").reduce((s, t) => s + (t.monto || 0), 0);
-              const retiros = Math.abs(filtered.filter(t => t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL").reduce((s, t) => s + (t.monto || 0), 0));
-              const cancels = filtered.filter(t => t.tipo === "CANCEL_RETIRO").reduce((s, t) => s + (t.monto || 0), 0);
-              const devols = filtered.filter(t => t.tipo === "DEVOLUCION").reduce((s, t) => s + (t.monto || 0), 0);
-
-              // End of period: current state
-              const cashNow = allTx.filter(t => !txTo || t.fecha <= txTo).reduce((s, t) => s + (t.monto || 0), 0);
-              const invNow = allPs.filter(p => p.status === "Disponible");
-              const invCostNow = invNow.reduce((s, p) => s + (p.cost || 0), 0);
-              const navNow = cashNow + invCostNow;
-
-              // Profit in period
-              const soldInPeriod = filtered.filter(t => t.tipo === "SELL");
-              const profitPeriod = soldInPeriod.reduce((s, t) => {
-                const p = allPs.find(pc => pc.id === t.pieza_id);
-                return s + ((t.monto || 0) - (p?.cost || 0) - gastosOf(t.pieza_id));
-              }, 0);
-
-              // PDF Export
-              const exportPDF = () => {
-                const fl = activeFund === "ALL" ? "Todos los Fondos" : (fundInfo[activeFund]?.short || activeFund);
-                const pl = txFrom && txTo ? `${txFrom} al ${txTo}` : txFrom ? `Desde ${txFrom}` : txTo ? `Hasta ${txTo}` : "Histórico completo";
-                let h = `<html><head><meta charset="UTF-8"><title>Estado de Cuenta — TWR</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;padding:40px;color:#1a1a2e;font-size:11px}h1{font-size:22px}h2{font-size:13px;color:#666;margin-bottom:20px}.hdr{display:flex;justify-content:space-between;margin-bottom:25px;padding-bottom:12px;border-bottom:2px solid #C9A96E}.bl{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px}.bl>div{padding:10px;border-radius:8px;text-align:center;background:#f8f9fa;border:1px solid #e9ecef}.bl .lb{font-size:9px;color:#666;text-transform:uppercase}.bl .vl{font-size:15px;font-weight:700}.sec{margin:15px 0 8px;font-size:11px;font-weight:700;color:#C9A96E;text-transform:uppercase;letter-spacing:.5px}table{width:100%;border-collapse:collapse}th{text-align:left;padding:6px;border-bottom:2px solid #C9A96E;font-size:9px;text-transform:uppercase;color:#666}td{padding:5px 6px;border-bottom:1px solid #eee;font-size:10px}.r{text-align:right}.b{font-weight:600}.cx{opacity:.4;text-decoration:line-through}.gn{color:#16a34a}.rd{color:#dc2626}.ft{margin-top:25px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}.splt{display:grid;gap:10px;margin-top:10px}.splt>div{padding:8px;border-radius:6px;text-align:center;background:#f0fdf4;border:1px solid #dcfce7}</style></head><body>`;
-                h += `<div class="hdr"><div><h1>The Wrist Room</h1><h2>Estado de Cuenta — ${fl}</h2><div style="font-size:11px">${pl}</div></div><div style="text-align:right;font-size:10px;color:#666">Generado: ${new Date().toLocaleString("es-MX")}</div></div>`;
-                if (txFrom) { h += `<div class="sec">Posición Inicial</div><div class="bl"><div><div class="lb">NAV</div><div class="vl">${fmxn(navBefore)}</div></div><div><div class="lb">Cash</div><div class="vl">${fmxn(cashBefore)}</div></div><div><div class="lb">Inventario</div><div class="vl">${fmxn(invCostBefore)}</div></div></div>`; }
-                h += `<div class="sec">Movimientos del Periodo</div><div class="bl" style="grid-template-columns:repeat(4,1fr)"><div><div class="lb">Capital</div><div class="vl gn">+${fmxn(capital)}</div></div><div><div class="lb">Compras</div><div class="vl rd">${fmxn(buys)}</div></div><div><div class="lb">Ventas</div><div class="vl gn">+${fmxn(sells)}</div></div><div><div class="lb">Trades</div><div class="vl">${fmxn(trades)}</div></div></div>`;
-                h += `<div class="sec">Posición Final</div><div class="bl"><div><div class="lb">NAV</div><div class="vl" style="color:${navNow>=0?"#16a34a":"#dc2626"}">${fmxn(navNow)}</div></div><div><div class="lb">Cash</div><div class="vl">${fmxn(cashNow)}</div></div><div><div class="lb">Inventario (${invNow.length} pzs)</div><div class="vl">${fmxn(invCostNow)}</div></div></div>`;
-                if (profitPeriod !== 0) { h += `<div class="sec">Utilidad del Periodo: ${fmxn(profitPeriod)}</div><div class="splt" style="grid-template-columns:repeat(${socios.length},1fr)">${socios.map(s => `<div><div class="lb">${s.name} ${s.participacion}%</div><div class="vl gn">${fmxn(Math.round(profitPeriod * s.participacion / 100))}</div></div>`).join("")}</div>`; }
-                h += `<div class="sec" style="margin-top:20px">Detalle de Movimientos (${filtered.length})</div>`;
-                h += `<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th class="r">Cargo</th><th class="r">Abono</th><th class="r">Saldo</th></tr></thead><tbody>`;
-                let run = cashBefore;
-                filtered.forEach(t => { run += (t.monto || 0); const cx = cIds.has(t.id); h += `<tr${cx?' class="cx"':''}><td>${t.fecha}</td><td>${txL(t.tipo)}</td><td>${(t.descripcion||"").replace(/</g,"&lt;")}</td><td class="r rd">${t.monto<0?fmxn(Math.abs(t.monto)):""}</td><td class="r gn">${t.monto>=0?fmxn(t.monto):""}</td><td class="r b">${fmxn(run)}</td></tr>`; });
-                h += `</tbody></table><div class="ft">The Wrist Room · Mérida, Yucatán · ${filtered.length} movimientos · ${pl}</div></body></html>`;
-                const w = window.open("", "_blank"); w.document.write(h); w.document.close(); setTimeout(() => w.print(), 500);
-              };
-
-              return <>
-                {/* === INVESTMENT SNAPSHOT CARDS === */}
-                {(txFrom || txTo) && <>
-                  {/* Initial Position */}
-                  {txFrom && <Cd className="p-4">
-                    <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--bl)" }}>📊 Posición al {txFrom}</div>
-                    <div className="grid grid-cols-3 gap-3 text-center">
-                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>NAV</div><div className="fd font-bold text-lg text-white">{fmxn(navBefore)}</div></div>
-                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Cash</div><div className="fd font-bold text-lg" style={{ color: "var(--bl)" }}>{fmxn(cashBefore)}</div></div>
-                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Inventario ({invBefore.length} pzs)</div><div className="fd font-bold text-lg" style={{ color: "var(--gd)" }}>{fmxn(invCostBefore)}</div></div>
-                    </div>
-                  </Cd>}
-
-                  {/* Period Activity */}
-                  <Cd className="p-4">
-                    <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>⚡ Actividad del Periodo</div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-                      {capital > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Capital</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>+{fmxn(capital)}</div></div>}
-                      {buys !== 0 && <div className="rounded-lg p-2" style={{ background: "rgba(251,113,133,.06)" }}><div className="fb text-xs" style={{ color: "#FB7185" }}>Compras</div><div className="fd font-bold" style={{ color: "#FB7185" }}>{fmxn(buys)}</div></div>}
-                      {sells > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(74,222,128,.06)" }}><div className="fb text-xs" style={{ color: "var(--gn)" }}>Ventas</div><div className="fd font-bold" style={{ color: "var(--gn)" }}>+{fmxn(sells)}</div></div>}
-                      {trades !== 0 && <div className="rounded-lg p-2" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Trades</div><div className="fd font-bold" style={{ color: "var(--gd)" }}>{trades >= 0 ? "+" : ""}{fmxn(trades)}</div></div>}
-                      {retiros > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(147,51,234,.06)" }}><div className="fb text-xs" style={{ color: "var(--pr)" }}>Retiros</div><div className="fd font-bold" style={{ color: "var(--pr)" }}>-{fmxn(retiros)}</div></div>}
-                      {cancels > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cancelaciones</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>+{fmxn(cancels)}</div></div>}
-                      {devols !== 0 && <div className="rounded-lg p-2" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Devoluciones</div><div className="fd font-bold" style={{ color: "var(--gd)" }}>{fmxn(devols)}</div></div>}
-                    </div>
-                  </Cd>
-
-                  {/* Final Position */}
-                  <Cd className="p-4">
-                    <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gn)" }}>📈 Posición al {txTo || td()}</div>
-                    <div className="grid grid-cols-3 gap-3 text-center">
-                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>NAV</div><div className="fd font-bold text-xl" style={{ color: navNow >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(navNow)}</div></div>
-                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Cash</div><div className="fd font-bold text-xl" style={{ color: "var(--bl)" }}>{fmxn(cashNow)}</div></div>
-                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Inventario ({invNow.length} pzs)</div><div className="fd font-bold text-xl" style={{ color: "var(--gd)" }}>{fmxn(invCostNow)}</div></div>
-                    </div>
-                    {profitPeriod !== 0 && <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
-                      <div className="fb text-xs font-bold uppercase tracking-widest mb-2" style={{ color: profitPeriod >= 0 ? "var(--gn)" : "var(--rd)" }}>Utilidad del Periodo: {fmxn(profitPeriod)}</div>
-                      <div className="grid gap-3 text-center" style={{ gridTemplateColumns: `repeat(${socios.length}, 1fr)` }}>
-                        {socios.map(s => <div key={s.id} className="rounded-lg p-2" style={{ background: `${s.color}11` }}>
-                          <div className="fb text-xs" style={{ color: s.color }}>{s.name} {s.participacion}%</div>
-                          <div className="fd font-bold text-white">{fmxn(Math.round(profitPeriod * s.participacion / 100))}</div>
-                        </div>)}
-                      </div>
-                    </div>}
-                  </Cd>
-                </>}
-
-                {/* Transaction detail table */}
-                <Cd>
-                  <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}>
-                    <span className="fb text-xs" style={{ color: "var(--cd)" }}>{filtered.length} movimientos{txFrom || txTo ? ` · ${txFrom || "inicio"} → ${txTo || "hoy"}` : ""}</span>
-                    <button onClick={exportPDF} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>📄 Exportar PDF</button>
+            {/* Snapshot cards */}
+            {(txFrom || txTo) && <>
+              {txFrom && <Cd className="p-4">
+                <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--bl)" }}>📊 Posición al {txFrom}</div>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>NAV</div><div className="fd font-bold text-lg text-white">{fmxn(navBefore)}</div></div>
+                  <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Cash</div><div className="fd font-bold text-lg" style={{ color: "var(--bl)" }}>{fmxn(cashBefore)}</div></div>
+                  <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Inventario ({invBefore.length} pzs)</div><div className="fd font-bold text-lg" style={{ color: "var(--gd)" }}>{fmxn(invCostBefore)}</div></div>
+                </div>
+              </Cd>}
+              <Cd className="p-4">
+                <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>⚡ Actividad del Periodo</div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                  {capital > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Capital</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>+{fmxn(capital)}</div></div>}
+                  {buys !== 0 && <div className="rounded-lg p-2" style={{ background: "rgba(251,113,133,.06)" }}><div className="fb text-xs" style={{ color: "#FB7185" }}>Compras</div><div className="fd font-bold" style={{ color: "#FB7185" }}>{fmxn(buys)}</div></div>}
+                  {sells > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(74,222,128,.06)" }}><div className="fb text-xs" style={{ color: "var(--gn)" }}>Ventas</div><div className="fd font-bold" style={{ color: "var(--gn)" }}>+{fmxn(sells)}</div></div>}
+                  {trades !== 0 && <div className="rounded-lg p-2" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Trades</div><div className="fd font-bold" style={{ color: "var(--gd)" }}>{trades >= 0 ? "+" : ""}{fmxn(trades)}</div></div>}
+                  {retiros > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(147,51,234,.06)" }}><div className="fb text-xs" style={{ color: "var(--pr)" }}>Retiros</div><div className="fd font-bold" style={{ color: "var(--pr)" }}>-{fmxn(retiros)}</div></div>}
+                  {cancels > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cancelaciones</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>+{fmxn(cancels)}</div></div>}
+                  {devols !== 0 && <div className="rounded-lg p-2" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Devoluciones</div><div className="fd font-bold" style={{ color: "var(--gd)" }}>{fmxn(devols)}</div></div>}
+                </div>
+              </Cd>
+              <Cd className="p-4">
+                <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gn)" }}>📈 Posición al {txTo || td()}</div>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>NAV</div><div className="fd font-bold text-xl" style={{ color: navNow >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(navNow)}</div></div>
+                  <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Cash</div><div className="fd font-bold text-xl" style={{ color: "var(--bl)" }}>{fmxn(cashNow)}</div></div>
+                  <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Inventario ({invNow.length} pzs)</div><div className="fd font-bold text-xl" style={{ color: "var(--gd)" }}>{fmxn(invCostNow)}</div></div>
+                </div>
+                {profitPeriod !== 0 && <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
+                  <div className="fb text-xs font-bold uppercase tracking-widest mb-2" style={{ color: profitPeriod >= 0 ? "var(--gn)" : "var(--rd)" }}>Utilidad del Periodo: {fmxn(profitPeriod)}</div>
+                  <div className="grid gap-3 text-center" style={{ gridTemplateColumns: `repeat(${socios.length}, 1fr)` }}>
+                    {socios.map(s => <div key={s.id} className="rounded-lg p-2" style={{ background: `${s.color}11` }}>
+                      <div className="fb text-xs" style={{ color: s.color }}>{s.name} {s.participacion}%</div>
+                      <div className="fd font-bold text-white">{fmxn(Math.round(profitPeriod * s.participacion / 100))}</div>
+                    </div>)}
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH r>Saldo</TH><TH></TH></tr></thead>
-                      <tbody>{(() => { let run = txFrom ? txsBefore.reduce((s, t) => s + (t.monto || 0), 0) : 0; return filtered.map(t => { run += (t.monto || 0); const isR = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL"; const cx = cIds.has(t.id);
-                        return <tr key={t.id} className="hover:bg-white/[.02]" style={cx ? { opacity: 0.4 } : {}}><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD><TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD><TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD><TD r><span className="fb text-xs" style={{ color: "var(--cd)" }}>{fmxn(run)}</span></TD><TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }}>↩</button>}</TD></tr>; }); })()}</tbody>
-                    </table></div></Cd></>;
-            })()}
-          </div>
-        )}
+                </div>}
+              </Cd>
+            </>}
 
+            {/* Transaction detail */}
+            <Cd>
+              <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}>
+                <span className="fb text-xs" style={{ color: "var(--cd)" }}>{filtered.length} movimientos{txFrom || txTo ? ` · ${txFrom || "inicio"} → ${txTo || "hoy"}` : ""}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH r>Saldo</TH><TH></TH></tr></thead>
+                  <tbody>{(() => { let run = cashBefore; return filtered.map(t => { run += (t.monto || 0); const isR = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL"; const cx = cIds.has(t.id);
+                    return <tr key={t.id} className="hover:bg-white/[.02]" style={cx ? { opacity: 0.4 } : {}}><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD><TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD><TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD><TD r><span className="fb text-xs" style={{ color: "var(--cd)" }}>{fmxn(run)}</span></TD><TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }}>↩</button>}</TD></tr>; }); })()}</tbody>
+                </table></div></Cd>
+          </div>;
+        })()}
         {/* ═══ CORTES ═══ */}
         {page === "cortes" && (
           <div className="space-y-5 au">
