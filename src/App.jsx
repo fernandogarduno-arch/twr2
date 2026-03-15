@@ -249,8 +249,8 @@ const IC = {
   wa:"M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z",
 };
 
-function Cd({children,className="",glow}){return <div className={`rounded-2xl ${className}`} style={{background:"var(--n2)",border:"1px solid rgba(255,255,255,.06)",boxShadow:glow?"0 0 40px rgba(201,169,110,.08)":"0 2px 12px rgba(0,0,0,.2)"}}>{children}</div>}
-function St({label,value,sub,accent}){return <Cd className="p-4 md:p-5"><div className="fb text-xs font-medium uppercase tracking-widest" style={{color:"var(--cd)"}}>{label}</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{color:accent||"white"}}>{value}</div>{sub&&<div className="fb text-xs mt-1" style={{color:"rgba(245,240,232,.4)"}}>{sub}</div>}</Cd>}
+function Cd({children,className="",glow,onClick}){return <div className={`rounded-2xl ${className}`} onClick={onClick} style={{background:"var(--n2)",border:"1px solid rgba(255,255,255,.06)",boxShadow:glow?"0 0 40px rgba(201,169,110,.08)":"0 2px 12px rgba(0,0,0,.2)"}}>{children}</div>}
+function St({label,value,sub,accent,onClick}){return <Cd className={`p-4 md:p-5${onClick?" cursor-pointer hover:brightness-110 transition-all":""}`} onClick={onClick}><div className="fb text-xs font-medium uppercase tracking-widest" style={{color:"var(--cd)"}}>{label}</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{color:accent||"white"}}>{value}</div>{sub&&<div className="fb text-xs mt-1" style={{color:"rgba(245,240,232,.4)"}}>{sub}</div>}</Cd>}
 function Bd({text,v="default"}){const st={default:{background:"rgba(245,240,232,.08)",color:"var(--cd)"},gold:{background:"rgba(201,169,110,.15)",color:"var(--gl)"},green:{background:"rgba(74,222,128,.12)",color:"var(--gn)"},red:{background:"rgba(251,113,133,.12)",color:"var(--rd)"},blue:{background:"rgba(96,165,250,.12)",color:"var(--bl)"},purple:{background:"rgba(168,85,247,.12)",color:"var(--pr)"}};return <span className="fb text-xs px-2.5 py-1 rounded-full font-medium" style={st[v]||st.default}>{text}</span>}
 function Fl({label,children,req,hint}){return <div className="mb-3"><label className="fb block text-xs font-semibold uppercase tracking-widest mb-1.5" style={{color:"var(--gk)"}}>{label}{req&&<span style={{color:"var(--rd)"}}> *</span>}</label>{children}{hint&&<div className="fb text-xs mt-1" style={{color:"rgba(245,240,232,.25)"}}>{hint}</div>}</div>}
 function Md({open,onClose,title,children,wide}){if(!open)return null;return <div className="fixed inset-0 z-50 ai" style={{isolation:"isolate"}}><div className="absolute inset-0" style={{background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)"}} /><div className="absolute inset-0 overflow-y-auto scr" style={{pointerEvents:"none"}}><div className="min-h-full flex items-start justify-center pt-4 md:pt-8 px-2 md:px-4 pb-8"><div className={`relative rounded-2xl shadow-2xl ${wide?"w-full max-w-3xl":"w-full max-w-lg"} au`} style={{background:"var(--n2)",border:"1px solid rgba(201,169,110,.15)",pointerEvents:"auto"}} onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()}><div className="sticky top-0 z-10 flex items-center justify-between px-4 md:px-6 py-3 md:py-4 rounded-t-2xl" style={{background:"var(--n2)",borderBottom:"1px solid rgba(255,255,255,.06)"}}><h2 className="fd font-semibold text-base md:text-lg text-white truncate pr-4">{title}</h2><button type="button" onClick={e=>{e.stopPropagation();onClose()}} className="p-1.5 rounded-lg hover:bg-white/5 shrink-0" style={{color:"var(--cd)"}}><Ico d={IC.x}/></button></div><div className="p-4 md:p-6">{children}</div></div></div></div></div>}
@@ -2395,14 +2395,14 @@ export default function App() {
             )}
 
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <St label={activeFund === "ALL" ? "NAV Global" : "NAV"} value={fmxn(comp.cash + comp.invC)} />
-              <St label="Cash en Fondo" value={fmxn(comp.cash)} accent="var(--bl)" />
-              <St label="Inventario (Costo)" value={fmxn(comp.invC)} accent="var(--gd)" />
-              <St label="Utilidad Realizada" value={fmxn(comp.rp)} sub={comp.cap > 0 ? `${((comp.rp / comp.cap) * 100).toFixed(1)}% del capital` : ""} accent="var(--gn)" />
-              <St label="MOIC" value={`${(comp.moic || 0).toFixed(2)}x`} sub={comp.distributions > 0 ? `${fmxn(comp.distributions)} retornado` : ""} accent={comp.moic >= 1 ? "var(--gn)" : "var(--pr)"} />
+              <St label={activeFund === "ALL" ? "NAV Global" : "NAV"} value={fmxn(comp.cash + comp.invC)} onClick={() => setPage("transactions")} />
+              <St label="Cash en Fondo" value={fmxn(comp.cash)} accent="var(--bl)" onClick={() => setPage("transactions")} />
+              <St label="Inventario (Costo)" value={fmxn(comp.invC)} accent="var(--gd)" onClick={() => { setPage("inventory"); setInvSort({ col: "status", dir: "asc" }); }} />
+              <St label="Utilidad Realizada" value={fmxn(comp.rp)} sub={comp.cap > 0 ? `${((comp.rp / comp.cap) * 100).toFixed(1)}% del capital` : ""} accent="var(--gn)" onClick={() => setPage("cortes")} />
+              <St label="MOIC" value={`${(comp.moic || 0).toFixed(2)}x`} sub={comp.distributions > 0 ? `${fmxn(comp.distributions)} retornado` : ""} accent={comp.moic >= 1 ? "var(--gn)" : "var(--pr)"} onClick={() => setPage("transactions")} />
             </div>
             {comp.rp !== 0 && (
-              <div className="rounded-xl p-4" style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.1)" }}>
+              <div className="rounded-xl p-4 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("cortes")} style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.1)" }}>
                 <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gn)" }}>{comp.isPersonal ? "Utilidad de tu Fondo Personal" : "Distribución de Utilidad (solo ventas directas)"}</div>
                 <div className={`grid gap-3 text-center`} style={{ gridTemplateColumns: `repeat(${(comp.splits?.length || 0) + 1}, 1fr)` }}>
                   {(comp.splits || []).map(s => (
@@ -2435,7 +2435,7 @@ export default function App() {
                 const y1 = cy - r * Math.cos(toRad(cashAngle));
                 const lg = cashAngle > 180 ? 1 : 0;
                 return (
-                  <Cd className="p-5">
+                  <Cd className="p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("inventory")}>
                     <div className="fb text-xs font-bold uppercase tracking-widest mb-4" style={{ color: "var(--gd)" }}>Composición del Fondo</div>
                     <div className="flex items-center gap-6">
                       <svg viewBox="0 0 160 160" className="w-32 h-32 shrink-0">
@@ -2481,7 +2481,7 @@ export default function App() {
                 );
                 const maxVal = Math.max(...soldPieces.map(s => Math.abs(s.profit)), 1);
                 return (
-                  <Cd className="p-5">
+                  <Cd className="p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("transactions")}>
                     <div className="fb text-xs font-bold uppercase tracking-widest mb-4" style={{ color: "var(--gn)" }}>Utilidad por Pieza Vendida</div>
                     <div className="space-y-2">
                       {soldPieces.map((s, i) => (
@@ -2504,12 +2504,12 @@ export default function App() {
             </div>
             <Cd>
               <div className="px-4 py-3 flex justify-between items-center" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}>
-                <h3 className="fd font-semibold text-white">Inventario Activo ({comp.inv?.length || 0})</h3>
+                <h3 className="fd font-semibold text-white cursor-pointer hover:text-[var(--gd)] transition-colors" onClick={() => setPage("inventory")}>Inventario Activo ({comp.inv?.length || 0})</h3>
                 <button className="fb text-xs" style={{ color: "var(--gd)" }} onClick={() => setPage("inventory")}>Ver todo →</button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full"><thead><tr><TH>Pieza</TH><TH>Origen</TH><TH r>Costo</TH><TH r>Lista</TH><TH>Status</TH></tr></thead>
-                  <tbody>{(comp.inv || []).slice(0, 10).map(p => <tr key={p.id} className="hover:bg-white/[.02]"><TD b>{p.name}</TD><TD><Bd text={fundInfo[p.fondo_id]?.short || p.fondo_id} v="gold" /></TD><TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD><TD><Bd text={p.status} v="green" /></TD></tr>)}</tbody>
+                  <tbody>{(comp.inv || []).slice(0, 10).map(p => <tr key={p.id} className="hover:bg-white/[.02] cursor-pointer" onClick={() => { setSel(p); setModal("ep"); }}><TD b>{p.name}</TD><TD><Bd text={fundInfo[p.fondo_id]?.short || p.fondo_id} v="gold" /></TD><TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD><TD><Bd text={p.status} v="green" /></TD></tr>)}</tbody>
                 </table>
               </div>
             </Cd>
