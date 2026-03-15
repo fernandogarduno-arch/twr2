@@ -107,46 +107,7 @@ const db = {
   async delCosto(id) { const { error } = await sb.from("costos_pieza").delete().eq("id", id); if (error) throw error; },
   async loadAuditLog(limit = 50) { const { data } = await sb.from("audit_log").select("*").order("created_at", { ascending: false }).limit(limit); return data || []; },
   async loadEdits(piezaId) { const { data } = await sb.from("pieza_edits").select("*").eq("pieza_id", piezaId).order("editado_at", { ascending: false }); return data || []; },
-  async saveValidacion(v) { const { data, error } = await sb.from("validaciones_ia").upsert(v).select().single(); if (error) throw error; return data; },
-  async loadValidaciones(piezaId) { const { data } = await sb.from("validaciones_ia").select("*").eq("pieza_id", piezaId).order("created_at", { ascending: false }); return data || []; },
 };
-
-// Claude Vision API helper
-const CLAUDE_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
-async function callClaudeVision(images, prompt, maxTokens = 1024) {
-  const content = [];
-  for (const img of images) {
-    content.push({ type: "image", source: { type: "base64", media_type: img.mime || "image/jpeg", data: img.base64 } });
-  }
-  content.push({ type: "text", text: prompt });
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: maxTokens, messages: [{ role: "user", content }] }),
-  });
-  if (!resp.ok) throw new Error(`Claude API error: ${resp.status}`);
-  const data = await resp.json();
-  return data.content?.[0]?.text || "";
-}
-async function imageUrlToBase64(url) {
-  const resp = await fetch(url);
-  const blob = await resp.blob();
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const b64 = reader.result.split(",")[1];
-      resolve({ base64: b64, mime: blob.type || "image/jpeg" });
-    };
-    reader.readAsDataURL(blob);
-  });
-}
-async function fileToBase64(file) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve({ base64: reader.result.split(",")[1], mime: file.type || "image/jpeg" });
-    reader.readAsDataURL(file);
-  });
-}
 
 /* ═══ WATCH DATABASE ═══ */
 const WDB = {
@@ -292,329 +253,83 @@ const BtnD=({children,onClick})=><button type="button" onClick={onClick} classNa
 function FundSel({value,onChange,label,funds,fundInfo:fi}){const flist=funds||FUNDS;const info=fi||FUND_INFO_BASE;return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{flist.map(fk=>{const f=info[fk];if(!f)return null;const s=value===fk;return <button key={fk} type="button" onClick={()=>onChange(fk)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(201,169,110,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{f.icon}</span><span className="fb font-semibold text-sm text-white flex-1">{f.short}</span>{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
 
 /* ═══ PHOTO UPLOAD COMPONENT ═══ */
-/* ═══ IMAGE CROPPER ═══ */
-function ImageCropper({ file, onCrop, onCancel }) {
-  const canvasRef = useRef(null);
-  const imgRef = useRef(null);
-  const [img, setImg] = useState(null);
-  const [crop, setCrop] = useState(null);
-  const [dragging, setDragging] = useState(false);
-  const [start, setStart] = useState(null);
-
-  useEffect(() => {
-    const image = new Image();
-    image.onload = () => setImg(image);
-    image.src = URL.createObjectURL(file);
-    return () => URL.revokeObjectURL(image.src);
-  }, [file]);
-
-  useEffect(() => {
-    if (!img || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const maxW = Math.min(window.innerWidth - 80, 600);
-    const scale = maxW / img.width;
-    canvas.width = img.width * scale;
-    canvas.height = img.height * scale;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    if (crop) {
-      ctx.strokeStyle = "#C9A96E";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 3]);
-      ctx.strokeRect(crop.x, crop.y, crop.w, crop.h);
-      ctx.fillStyle = "rgba(0,0,0,.4)";
-      ctx.fillRect(0, 0, canvas.width, crop.y);
-      ctx.fillRect(0, crop.y + crop.h, canvas.width, canvas.height - crop.y - crop.h);
-      ctx.fillRect(0, crop.y, crop.x, crop.h);
-      ctx.fillRect(crop.x + crop.w, crop.y, canvas.width - crop.x - crop.w, crop.h);
-    }
-  }, [img, crop]);
-
-  const getPos = (e) => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const t = e.touches ? e.touches[0] : e;
-    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
-  };
-  const onDown = (e) => { e.preventDefault(); setDragging(true); setStart(getPos(e)); setCrop(null); };
-  const onMove = (e) => { if (!dragging || !start) return; e.preventDefault(); const p = getPos(e); setCrop({ x: Math.min(start.x, p.x), y: Math.min(start.y, p.y), w: Math.abs(p.x - start.x), h: Math.abs(p.y - start.y) }); };
-  const onUp = () => setDragging(false);
-
-  const applyCrop = () => {
-    if (!crop || !img || crop.w < 10 || crop.h < 10) { alert("Dibuja un recuadro sobre la imagen"); return; }
-    const canvas = canvasRef.current;
-    const scale = img.width / canvas.width;
-    const out = document.createElement("canvas");
-    out.width = crop.w * scale;
-    out.height = crop.h * scale;
-    out.getContext("2d").drawImage(img, crop.x * scale, crop.y * scale, crop.w * scale, crop.h * scale, 0, 0, out.width, out.height);
-    out.toBlob((blob) => {
-      const cropped = new File([blob], file.name || "crop.jpg", { type: "image/jpeg" });
-      onCrop(cropped);
-    }, "image/jpeg", 0.92);
-  };
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.85)" }} onClick={onCancel}>
-      <div className="max-w-[640px] w-full" onClick={e => e.stopPropagation()}>
-        <div className="fb text-sm font-bold text-white mb-3 text-center">Arrastra para recortar la imagen</div>
-        <canvas ref={canvasRef} className="w-full rounded-xl cursor-crosshair touch-none" onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp} onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp} />
-        <div className="flex gap-3 justify-center mt-4">
-          <button onClick={applyCrop} className="fb px-5 py-2.5 rounded-xl text-sm font-semibold" style={{ background: "var(--gd)", color: "#1a1a2e" }}>✂️ Recortar</button>
-          <button onClick={() => onCrop(file)} className="fb px-5 py-2.5 rounded-xl text-sm font-semibold" style={{ background: "rgba(255,255,255,.1)", color: "white" }}>Usar original</button>
-          <button onClick={onCancel} className="fb px-5 py-2.5 rounded-xl text-sm font-semibold" style={{ color: "var(--cd)" }}>Cancelar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ═══ PHOTO UPLOADER ═══ */
-function PhotoUploader({ pieceId, fotos, onUpload, onDelete, isNew, onOcrResult }) {
+function PhotoUploader({ pieceId, fotos, onUpload, onDelete, isNew }) {
   const [uploading, setUploading] = useState(null);
-  const [cropFile, setCropFile] = useState(null);
-  const [cropPos, setCropPos] = useState(null);
-  const [cropReplace, setCropReplace] = useState(null);
-  const [ocrLoading, setOcrLoading] = useState(null);
-  const [ocrResult, setOcrResult] = useState(null);
   const replaceRefs = useRef({});
 
-  const doUpload = async (pos, file) => {
+  const handleUpload = async (pos, file) => {
     if (!file || !pieceId) return;
     setUploading(pos);
     try {
       const { url, storagePath } = await stor.uploadFoto(pieceId, pos, file);
-      if (isNew) { const pending = { id: uid(), pieza_id: pieceId, posicion: pos, url, storage_path: storagePath, _pending: true }; if (onUpload) onUpload(pending); }
-      else {
+      if (isNew) {
+        // New piece: don't save to DB yet, just pass upload info back
+        const pending = { id: uid(), pieza_id: pieceId, posicion: pos, url, storage_path: storagePath, _pending: true };
+        if (onUpload) onUpload(pending);
+      } else {
+        // Verify piece exists before inserting foto
         const { data: exists } = await sb.from("piezas").select("id").eq("id", pieceId).single();
-        if (!exists) { alert("Error: la pieza no existe."); setUploading(null); return; }
+        if (!exists) { alert("Error: la pieza no existe en la base de datos. Recarga la página."); setUploading(null); return; }
         const saved = await db.saveFoto({ pieza_id: pieceId, posicion: pos, url, storage_path: storagePath });
         if (onUpload) onUpload(saved);
       }
-    } catch (e) { alert("Error subiendo foto: " + e.message); }
+    } catch (e) { console.error("Upload error:", e); alert("Error subiendo foto: " + e.message); }
     setUploading(null);
   };
 
-  // File selected → open crop
-  const onFileSelect = (pos, file, existing) => {
+  const handleReplace = async (pos, existing, file) => {
     if (!file) return;
-    setCropFile(file); setCropPos(pos); setCropReplace(existing || null);
-  };
-  // After crop (or "use original")
-  const onCropDone = async (croppedFile) => {
-    setCropFile(null);
-    if (cropReplace) {
-      if (!cropReplace._pending && onDelete) await onDelete(cropReplace);
-    }
-    await doUpload(cropPos, croppedFile);
-    setCropPos(null); setCropReplace(null);
-  };
-
-  // OCR recognition
-  const handleOcr = async (foto) => {
-    if (!CLAUDE_API_KEY) { alert("Falta VITE_ANTHROPIC_API_KEY en las variables de entorno"); return; }
-    setOcrLoading(foto.id);
+    if (!confirm(`¿Reemplazar la foto de "${PHOTO_POSITIONS.find(p => p.id === pos)?.label}"?`)) return;
+    setUploading(pos);
     try {
-      const img = await imageUrlToBase64(foto.url);
-      const text = await callClaudeVision([img], `Analiza esta imagen de un reloj de lujo. Extrae la siguiente información si es visible:
-- Marca (brand)
-- Modelo (model)  
-- Número de referencia (ref)
-- Número de serie (serial)
-
-Responde SOLO en formato JSON así: {"brand":"","model":"","ref":"","serial":"","notas":"observaciones"}
-Si un campo no es visible, déjalo vacío. En "notas" incluye cualquier observación relevante.`);
-      try {
-        const clean = text.replace(/```json|```/g, "").trim();
-        const parsed = JSON.parse(clean);
-        setOcrResult({ foto: foto.id, ...parsed });
-        if (onOcrResult) onOcrResult(parsed);
-      } catch { setOcrResult({ foto: foto.id, notas: text }); }
-    } catch (e) { alert("Error en reconocimiento: " + e.message); }
-    setOcrLoading(null);
-  };
-
-  const pieceFotos = (fotos || []).filter(f => f.pieza_id === pieceId && !f.deleted_at);
-
-  return (
-    <>
-      {cropFile && <ImageCropper file={cropFile} onCrop={onCropDone} onCancel={() => { setCropFile(null); setCropPos(null); setCropReplace(null); }} />}
-      <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
-        <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Fotografías del Reloj</div>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {PHOTO_POSITIONS.map(pos => {
-            const existing = pieceFotos.find(f => f.posicion === pos.id);
-            const isUp = uploading === pos.id;
-            const isOcr = ocrLoading === existing?.id;
-            return (
-              <div key={pos.id} className="relative rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)", aspectRatio: "1" }}>
-                {existing ? (
-                  <div className="w-full h-full relative">
-                    <img src={existing.url} alt={pos.label} className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 opacity-0 hover:opacity-100 transition-all" style={{ background: "rgba(0,0,0,.6)" }}>
-                      <label className="cursor-pointer text-white text-xs font-semibold px-3 py-1 rounded-lg" style={{ background: "rgba(255,255,255,.15)" }}>
-                        📷 Reemplazar
-                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) onFileSelect(pos.id, e.target.files[0], existing); }} />
-                      </label>
-                      <button onClick={() => handleOcr(existing)} disabled={isOcr} className="text-xs font-semibold px-3 py-1 rounded-lg" style={{ background: "rgba(96,165,250,.2)", color: "#93C5FD" }}>
-                        {isOcr ? "⏳ Analizando..." : "🔍 Reconocer"}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 transition-all">
-                    <span className="text-2xl mb-1">{isUp ? "⏳" : pos.icon}</span>
-                    <span className="fb text-xs text-center px-2" style={{ color: "var(--cd)" }}>{isUp ? "Subiendo..." : pos.label}</span>
-                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) onFileSelect(pos.id, e.target.files[0], null); }} />
-                  </label>
-                )}
-                <div className="absolute bottom-0 left-0 right-0 px-2 py-1 text-center" style={{ background: "rgba(0,0,0,.5)" }}>
-                  <span className="fb text-xs" style={{ color: "var(--cd)" }}>{pos.label}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {/* OCR Result display */}
-        {ocrResult && (
-          <div className="mt-3 rounded-xl p-3" style={{ background: "rgba(96,165,250,.06)", border: "1px solid rgba(96,165,250,.12)" }}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="fb text-xs font-bold" style={{ color: "var(--bl)" }}>🔍 Resultado del Reconocimiento</div>
-              <button onClick={() => setOcrResult(null)} className="fb text-xs" style={{ color: "var(--cd)" }}>✕</button>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              {ocrResult.brand && <div><span className="fb" style={{ color: "var(--cd)" }}>Marca:</span> <span className="text-white font-semibold">{ocrResult.brand}</span></div>}
-              {ocrResult.model && <div><span className="fb" style={{ color: "var(--cd)" }}>Modelo:</span> <span className="text-white font-semibold">{ocrResult.model}</span></div>}
-              {ocrResult.ref && <div><span className="fb" style={{ color: "var(--cd)" }}>Referencia:</span> <span className="text-white font-semibold">{ocrResult.ref}</span></div>}
-              {ocrResult.serial && <div><span className="fb" style={{ color: "var(--cd)" }}>Serial:</span> <span className="text-white font-semibold">{ocrResult.serial}</span></div>}
-            </div>
-            {ocrResult.notas && <div className="fb text-xs mt-2" style={{ color: "var(--cd)" }}>{ocrResult.notas}</div>}
-            {onOcrResult && <button onClick={() => onOcrResult(ocrResult)} className="fb text-xs mt-2 px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>✓ Aplicar datos detectados</button>}
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-/* ═══ AI VALIDATION SECTION ═══ */
-function AiValidationSection({ pieceId, fotos, brand, model, refNum, serial, isNew }) {
-  const [validations, setValidations] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-
-  const pieceFotos = (fotos || []).filter(f => f.pieza_id === pieceId && !f.deleted_at);
-  const hasEnoughPhotos = pieceFotos.length >= 2;
-  const hasRef = !!(brand && model && refNum);
-  const canValidate = hasEnoughPhotos && hasRef && !isNew;
-
-  // Load existing validations
-  useEffect(() => {
-    if (pieceId && !isNew && !loaded) {
-      db.loadValidaciones(pieceId).then(v => { setValidations(v); setLoaded(true); });
-    }
-  }, [pieceId, isNew, loaded]);
-
-  const runValidation = async () => {
-    if (!CLAUDE_API_KEY) { alert("Falta VITE_ANTHROPIC_API_KEY"); return; }
-    setLoading(true);
-    try {
-      const images = [];
-      for (const foto of pieceFotos.slice(0, 4)) {
-        images.push(await imageUrlToBase64(foto.url));
+      if (!existing._pending && onDelete) await onDelete(existing);
+      const { url, storagePath } = await stor.uploadFoto(pieceId, pos, file);
+      if (isNew) {
+        const pending = { id: uid(), pieza_id: pieceId, posicion: pos, url, storage_path: storagePath, _pending: true };
+        if (onUpload) onUpload(pending);
+      } else {
+        const saved = await db.saveFoto({ pieza_id: pieceId, posicion: pos, url, storage_path: storagePath });
+        if (onUpload) onUpload(saved);
       }
-      const prompt = `Eres un experto relojero y autenticador de relojes de lujo. Analiza las ${images.length} fotos de este reloj:
-
-Marca: ${brand}
-Modelo: ${model}
-Referencia: ${refNum}
-Serial: ${serial || "No proporcionado"}
-
-Evalúa la autenticidad basándote en:
-- Acabados del dial (textura, impresión, alineación)
-- Calidad de la caja y bisel
-- Corona y logo
-- Brazalete/correa
-- Consistencia general con la referencia declarada
-
-Responde SOLO en JSON:
-{
-  "score": <número del 1 al 10, donde 10 = definitivamente auténtico>,
-  "resumen": "<párrafo de 2-3 oraciones en español con tu evaluación>",
-  "señales_positivas": ["lista de señales de autenticidad detectadas"],
-  "señales_alerta": ["lista de señales de alerta si las hay"],
-  "confianza": "<alta|media|baja — qué tan seguro estás del diagnóstico>"
-}`;
-
-      const text = await callClaudeVision(images, prompt, 1024);
-      const clean = text.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(clean);
-
-      const version = validations.length + 1;
-      const val = {
-        id: uid(), pieza_id: pieceId, version,
-        tipo: "autenticidad", score: parsed.score,
-        resumen: parsed.resumen,
-        detalles: { señales_positivas: parsed.señales_positivas, señales_alerta: parsed.señales_alerta, confianza: parsed.confianza },
-        fotos_usadas: pieceFotos.slice(0, 4).map(f => f.id),
-        modelo_ia: "claude-sonnet-4-20250514",
-      };
-      await db.saveValidacion(val);
-      setValidations(prev => [val, ...prev]);
-    } catch (e) { alert("Error en validación: " + e.message); }
-    setLoading(false);
+    } catch (e) { alert("Error reemplazando: " + e.message); }
+    setUploading(null);
   };
 
-  const scoreColor = (s) => s >= 8 ? "var(--gn)" : s >= 5 ? "#F59E0B" : "var(--rd)";
-  const scoreLabel = (s) => s >= 8 ? "Alta probabilidad de autenticidad" : s >= 5 ? "Requiere revisión adicional" : "Señales de alerta detectadas";
+  const pieceFotos = (fotos || []).filter(f => f.pieza_id === pieceId && !f.deleted_at);
 
   return (
-    <div className="rounded-xl p-4" style={{ background: "rgba(147,51,234,.04)", border: "1px solid rgba(147,51,234,.1)" }}>
-      <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--pr)" }}>🤖 Validación de Autenticidad con IA</div>
-
-      {/* Requirements check */}
-      <div className="flex gap-3 mb-3">
-        <div className="fb text-xs" style={{ color: hasEnoughPhotos ? "var(--gn)" : "var(--cd)" }}>{hasEnoughPhotos ? "✓" : "○"} ≥2 fotos</div>
-        <div className="fb text-xs" style={{ color: hasRef ? "var(--gn)" : "var(--cd)" }}>{hasRef ? "✓" : "○"} Referencia</div>
-        <div className="fb text-xs" style={{ color: !isNew ? "var(--gn)" : "var(--cd)" }}>{!isNew ? "✓" : "○"} Pieza guardada</div>
-      </div>
-
-      <button onClick={runValidation} disabled={!canValidate || loading}
-        className="fb w-full py-3 rounded-xl text-sm font-semibold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-        style={{ background: canValidate && !loading ? "rgba(147,51,234,.15)" : "rgba(255,255,255,.03)", color: "var(--pr)", border: "1px solid rgba(147,51,234,.15)" }}>
-        {loading ? "⏳ Analizando con IA..." : `🤖 Validar Autenticidad${pieceFotos.length > 0 ? ` (${pieceFotos.length} fotos)` : ""}`}
-      </button>
-
-      {!canValidate && !loading && (
-        <div className="fb text-xs mt-2 text-center" style={{ color: "var(--cd)" }}>
-          {!hasEnoughPhotos && "Sube al menos 2 fotos. "}
-          {!hasRef && "Completa marca, modelo y referencia. "}
-          {isNew && "Guarda la pieza primero. "}
-        </div>
-      )}
-
-      {/* Validation History */}
-      {validations.length > 0 && (
-        <div className="mt-4 space-y-3">
-          <div className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--cd)" }}>Historial de Validaciones ({validations.length})</div>
-          {validations.map(v => (
-            <div key={v.id} className="rounded-xl p-3" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center fd text-lg font-bold" style={{ background: `${scoreColor(v.score)}15`, color: scoreColor(v.score) }}>{v.score}</div>
-                  <div>
-                    <div className="fb text-xs font-semibold" style={{ color: scoreColor(v.score) }}>{scoreLabel(v.score)}</div>
-                    <div className="fb text-xs" style={{ color: "var(--cd)" }}>v{v.version} · {new Date(v.created_at).toLocaleDateString("es-MX")} · {(v.fotos_usadas || []).length} fotos</div>
+    <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
+      <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Fotografías del Reloj</div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {PHOTO_POSITIONS.map(pos => {
+          const existing = pieceFotos.find(f => f.posicion === pos.id);
+          const isUp = uploading === pos.id;
+          return (
+            <div key={pos.id} className="relative rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)", aspectRatio: "1" }}>
+              {existing ? (
+                <label className="w-full h-full cursor-pointer relative">
+                  <img src={existing.url} alt={pos.label} className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-all" style={{ background: "rgba(0,0,0,.55)" }}>
+                    <span className="text-white text-xs font-semibold px-3 py-1.5 rounded-lg" style={{ background: "rgba(255,255,255,.15)", backdropFilter: "blur(4px)" }}>📷 Reemplazar</span>
                   </div>
-                </div>
-                {v.detalles?.confianza && <span className="fb text-xs px-2 py-0.5 rounded-full" style={{ background: v.detalles.confianza === "alta" ? "rgba(74,222,128,.12)" : v.detalles.confianza === "media" ? "rgba(245,158,11,.12)" : "rgba(251,113,133,.12)", color: v.detalles.confianza === "alta" ? "var(--gn)" : v.detalles.confianza === "media" ? "#F59E0B" : "var(--rd)" }}>Confianza: {v.detalles.confianza}</span>}
+                  <input type="file" accept="image/*" capture="environment" className="hidden"
+                    ref={el => replaceRefs.current[pos.id] = el}
+                    onChange={e => { if (e.target.files?.[0]) handleReplace(pos.id, existing, e.target.files[0]); }} />
+                </label>
+              ) : (
+                <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 transition-all">
+                  <span className="text-2xl mb-1">{isUp ? "⏳" : pos.icon}</span>
+                  <span className="fb text-xs text-center px-2" style={{ color: "var(--cd)" }}>{isUp ? "Subiendo..." : pos.label}</span>
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) handleUpload(pos.id, e.target.files[0]); }} />
+                </label>
+              )}
+              <div className="absolute bottom-0 left-0 right-0 px-2 py-1 text-center" style={{ background: "rgba(0,0,0,.5)" }}>
+                <span className="fb text-xs" style={{ color: "var(--cd)" }}>{pos.label}</span>
               </div>
-              <p className="fb text-xs leading-relaxed" style={{ color: "var(--cd)" }}>{v.resumen}</p>
-              {v.detalles?.señales_positivas?.length > 0 && <div className="mt-2"><div className="fb text-xs" style={{ color: "var(--gn)" }}>✓ {v.detalles.señales_positivas.join(" · ")}</div></div>}
-              {v.detalles?.señales_alerta?.length > 0 && <div className="mt-1"><div className="fb text-xs" style={{ color: "var(--rd)" }}>⚠ {v.detalles.señales_alerta.join(" · ")}</div></div>}
             </div>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1332,20 +1047,10 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
 
       {/* ═══ TAB: FOTOS ═══ */}
       {tab === "photos" && (
-        <div className="space-y-4 au">
+        <div className="au">
           <PhotoUploader pieceId={f.id} fotos={localFotos} isNew={!piece}
             onUpload={(saved) => { if (saved) setLocalFotos(prev => [...prev.filter(ft => ft.posicion !== saved.posicion), saved]); }}
-            onDelete={async (foto) => { try { await db.softDelFoto(foto.id); setLocalFotos(prev => prev.filter(ft => ft.id !== foto.id)); } catch(e) { alert("Error: " + e.message); } }}
-            onOcrResult={(result) => {
-              if (result.brand && !f.brand) u("brand", result.brand);
-              if (result.model && !f.model) u("model", result.model);
-              if (result.ref && !f.ref) u("ref", result.ref);
-              if (result.serial && !f.serial) u("serial", result.serial);
-              if (!f.name && result.brand && result.model) u("name", `${result.brand} ${result.model}`);
-            }} />
-
-          {/* AI Validation Section */}
-          <AiValidationSection pieceId={f.id} fotos={localFotos} brand={f.brand} model={f.model} refNum={f.ref} serial={f.serial} isNew={!piece} />
+            onDelete={async (foto) => { try { await db.softDelFoto(foto.id); setLocalFotos(prev => prev.filter(ft => ft.id !== foto.id)); } catch(e) { alert("Error: " + e.message); } }} />
         </div>
       )}
 
@@ -2375,20 +2080,20 @@ export default function App() {
   }, [refresh, cm, activeFund, fundInfo, data]);
 
   const hCancelRetiro = useCallback(async (tx) => {
-    if (!confirm(`¿Cancelar este retiro?\n\n${tx.descripcion}\nMonto: ${fmxn(Math.abs(tx.monto))}`)) return;
+    if (!confirm(`¿Cancelar este retiro?\n\n${tx.descripcion}\n${fmxn(Math.abs(tx.monto))}`)) return;
     try {
       await db.saveTx({ id: uid(), fecha: td(), tipo: "CANCEL_RETIRO", monto: Math.abs(tx.monto), fondo_id: tx.fondo_id, descripcion: `↩ Cancelación: ${tx.descripcion} (ref: ${tx.id})`, metodo_pago: "Reversión", partner_id: tx.partner_id });
-      showToast(`Retiro cancelado — ${fmxn(Math.abs(tx.monto))} devuelto`); await refresh();
+      showToast(`Retiro cancelado`); await refresh();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh]);
 
   const hCancelCorte = useCallback(async (corte) => {
-    if (!confirm(`¿Cancelar el corte ${corte.periodo}?\n\nSe revertirán los retiros (${fmxn(corte.utilidad)}).`)) return;
+    if (!confirm(`¿Cancelar el corte ${corte.periodo}? Se revertirán los retiros (${fmxn(corte.utilidad)}).`)) return;
     try {
-      const retiroTxs = (data?.txs || []).filter(t => t.tipo === "RETIRO" && (t.descripcion || "").includes(corte.periodo));
-      for (const tx of retiroTxs) {
-        const already = (data?.txs || []).some(ct => ct.tipo === "CANCEL_RETIRO" && (ct.descripcion || "").includes(tx.id));
-        if (!already) await db.saveTx({ id: uid(), fecha: td(), tipo: "CANCEL_RETIRO", monto: Math.abs(tx.monto), fondo_id: tx.fondo_id, descripcion: `↩ Cancelación corte ${corte.periodo}: ${tx.descripcion} (ref: ${tx.id})`, metodo_pago: "Reversión", partner_id: tx.partner_id });
+      const rTxs = (data?.txs || []).filter(t => t.tipo === "RETIRO" && (t.descripcion || "").includes(corte.periodo));
+      for (const tx of rTxs) {
+        const dup = (data?.txs || []).some(ct => ct.tipo === "CANCEL_RETIRO" && (ct.descripcion || "").includes(tx.id));
+        if (!dup) await db.saveTx({ id: uid(), fecha: td(), tipo: "CANCEL_RETIRO", monto: Math.abs(tx.monto), fondo_id: tx.fondo_id, descripcion: `↩ Cancelación corte ${corte.periodo}: ${tx.descripcion} (ref: ${tx.id})`, metodo_pago: "Reversión", partner_id: tx.partner_id });
       }
       await sb.from("cortes").update({ decision: "cancelado" }).eq("id", corte.id);
       showToast(`Corte ${corte.periodo} cancelado`); await refresh();
@@ -2408,25 +2113,25 @@ export default function App() {
     } else {
       const sellTx = txs.find(t => t.pieza_id === piece.id && t.tipo === "SELL");
       desc += `• "${piece.name}" regresa a inventario\n`;
-      if (sellTx) desc += `• ${fmxn(sellTx.monto)} de la venta → sale del fondo\n`;
+      if (sellTx) desc += `• ${fmxn(sellTx.monto)} → sale del fondo\n`;
     }
     if (!confirm(desc)) return;
     try {
       if (isTrade && trRef) {
         await db.savePiece({ id: piece.id, status: "Disponible", stage: "inventario", exit_type: null, exit_fund: null });
         for (const ip of allPieces.filter(p => p.trade_ref === trRef && p.entry_type === "trade_in" && p.id !== piece.id)) {
-          if (ip.status === "Disponible") await db.savePiece({ id: ip.id, status: "Devuelto", stage: "cancelado", devolucion_de: piece.id, devolucion_fecha: td() });
+          if (ip.status === "Disponible") await db.savePiece({ id: ip.id, status: "Devuelto", stage: "cancelado" });
         }
         for (const tx of txs.filter(t => t.trade_ref === trRef && t.tipo === "TRADE" && t.monto !== 0)) {
           await db.saveTx({ id: uid(), fecha: td(), tipo: "DEVOLUCION", pieza_id: piece.id, monto: -(tx.monto), fondo_id: tx.fondo_id, descripcion: `↩ Devolución ${trRef}: reversa "${tx.descripcion}" (ref: ${tx.id})`, metodo_pago: "Reversión", trade_ref: trRef });
         }
-        await db.saveTx({ id: uid(), fecha: td(), tipo: "DEVOLUCION", pieza_id: piece.id, monto: 0, fondo_id: piece.fondo_id, descripcion: `↩ Devolución ${trRef}: ${piece.name} regresa a inventario`, metodo_pago: "Devolución", trade_ref: trRef });
+        await db.saveTx({ id: uid(), fecha: td(), tipo: "DEVOLUCION", pieza_id: piece.id, monto: 0, fondo_id: piece.fondo_id, descripcion: `↩ Devolución ${trRef}: ${piece.name} regresa`, metodo_pago: "Devolución", trade_ref: trRef });
       } else {
         await db.savePiece({ id: piece.id, status: "Disponible", stage: "inventario", exit_type: null, exit_fund: null });
         const sellTx = txs.find(t => t.pieza_id === piece.id && t.tipo === "SELL");
-        if (sellTx) await db.saveTx({ id: uid(), fecha: td(), tipo: "DEVOLUCION", pieza_id: piece.id, monto: -(sellTx.monto), fondo_id: sellTx.fondo_id, descripcion: `↩ Devolución venta: ${piece.name} — reversa ${fmxn(sellTx.monto)} (ref: ${sellTx.id})`, metodo_pago: "Reversión" });
+        if (sellTx) await db.saveTx({ id: uid(), fecha: td(), tipo: "DEVOLUCION", pieza_id: piece.id, monto: -(sellTx.monto), fondo_id: sellTx.fondo_id, descripcion: `↩ Devolución venta: ${piece.name} (ref: ${sellTx.id})`, metodo_pago: "Reversión" });
       }
-      showToast(`Devolución: ${piece.name} regresa a inventario`); await refresh(); cm();
+      showToast(`${piece.name} regresa a inventario`); await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, data]);
 
@@ -2686,51 +2391,136 @@ export default function App() {
         {page === "transactions" && (
           <div className="space-y-5 au">
             <div className="flex items-center justify-between flex-wrap gap-3"><h1 className="fd text-2xl md:text-3xl font-bold text-white">Estado de Cuenta</h1><div className="flex gap-2"><BtnS onClick={() => setModal("ac")}>+ Capital</BtnS><BtnS onClick={() => setModal("rc")}>↑ Retiro</BtnS></div></div>
+
+            {/* Period filter */}
             <div className="flex gap-3 items-end flex-wrap">
               <Fl label="Desde"><input type="date" className="ti" value={txFrom} onChange={e => setTxFrom(e.target.value)} style={{ fontSize: 12, padding: "6px 10px" }} /></Fl>
               <Fl label="Hasta"><input type="date" className="ti" value={txTo} onChange={e => setTxTo(e.target.value)} style={{ fontSize: 12, padding: "6px 10px" }} /></Fl>
               <button onClick={() => { const n = td(); setTxFrom(n.slice(0, 7) + "-01"); setTxTo(n); }} className="fb text-xs px-3 py-2 rounded-lg" style={{ color: "var(--bl)", background: "rgba(96,165,250,.08)" }}>Este mes</button>
               <button onClick={() => { const d = new Date(); d.setMonth(d.getMonth() - 1); const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"); setTxFrom(`${y}-${m}-01`); setTxTo(`${y}-${m}-${new Date(y, d.getMonth() + 1, 0).getDate()}`); }} className="fb text-xs px-3 py-2 rounded-lg" style={{ color: "var(--bl)", background: "rgba(96,165,250,.08)" }}>Mes anterior</button>
+              <button onClick={() => { setTxFrom(td().slice(0, 4) + "-01-01"); setTxTo(td()); }} className="fb text-xs px-3 py-2 rounded-lg" style={{ color: "var(--bl)", background: "rgba(96,165,250,.08)" }}>Este año</button>
               {(txFrom || txTo) && <button onClick={() => { setTxFrom(""); setTxTo(""); }} className="fb text-xs px-3 py-2 rounded-lg" style={{ color: "var(--rd)", background: "rgba(251,113,133,.08)" }}>✕ Limpiar</button>}
             </div>
+
             {(() => {
               const allTx = (data.txs || []).filter(t => activeFund === "ALL" || t.fondo_id === activeFund).sort((a, b) => a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0);
+              const allPs = (data.pieces || []).filter(p => activeFund === "ALL" || p.fondo_id === activeFund);
               const filtered = allTx.filter(t => (!txFrom || t.fecha >= txFrom) && (!txTo || t.fecha <= txTo));
               const cIds = new Set(allTx.filter(t => t.tipo === "CANCEL_RETIRO" || t.tipo === "DEVOLUCION").map(t => { const m = (t.descripcion || "").match(/ref: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
               const txL = t => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL", DEVOLUCION: "↩ DEVOL" }[t] || t);
-              const txC = t => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue", DEVOLUCION: "gold" }[t] || "gold");
-              const si = txFrom ? allTx.filter(t => t.fecha < txFrom).reduce((s, t) => s + (t.monto || 0), 0) : 0;
-              const mov = filtered.reduce((s, t) => s + (t.monto || 0), 0);
-              const sf = si + mov;
-              const ent = filtered.filter(t => t.monto > 0).reduce((s, t) => s + t.monto, 0);
-              const sal = filtered.filter(t => t.monto < 0).reduce((s, t) => s + Math.abs(t.monto), 0);
+              const txC = t => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue", DEVOLUCION: "gold", TRADE: "gold" }[t] || "gold");
+              const socios = data.socios || [];
+              const allCostos = data.costos || [];
+              const gastosOf = (pid) => allCostos.filter(c => c.pieza_id === pid).reduce((s, c) => s + (Number(c.monto) || 0), 0);
+
+              // === INVESTMENT SNAPSHOT CALCULATIONS ===
+              // Before period: state of investment at start
+              const txsBefore = txFrom ? allTx.filter(t => t.fecha < txFrom) : [];
+              const cashBefore = txsBefore.reduce((s, t) => s + (t.monto || 0), 0);
+              // Pieces that existed before the period (bought before, not sold before)
+              const buysBefore = txsBefore.filter(t => t.tipo === "BUY").map(t => t.pieza_id);
+              const sellsBefore = txsBefore.filter(t => t.tipo === "SELL").map(t => t.pieza_id);
+              const invBefore = txFrom ? allPs.filter(p => buysBefore.includes(p.id) && !sellsBefore.includes(p.id)) : [];
+              const invCostBefore = invBefore.reduce((s, p) => s + (p.cost || 0), 0);
+              const navBefore = cashBefore + invCostBefore;
+
+              // Period movements by type
+              const byType = (tipo) => filtered.filter(t => t.tipo === tipo).reduce((s, t) => s + (t.monto || 0), 0);
+              const capital = byType("CAPITAL");
+              const buys = byType("BUY");
+              const sells = byType("SELL");
+              const trades = filtered.filter(t => t.tipo === "TRADE").reduce((s, t) => s + (t.monto || 0), 0);
+              const retiros = Math.abs(filtered.filter(t => t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL").reduce((s, t) => s + (t.monto || 0), 0));
+              const cancels = filtered.filter(t => t.tipo === "CANCEL_RETIRO").reduce((s, t) => s + (t.monto || 0), 0);
+              const devols = filtered.filter(t => t.tipo === "DEVOLUCION").reduce((s, t) => s + (t.monto || 0), 0);
+
+              // End of period: current state
+              const cashNow = allTx.filter(t => !txTo || t.fecha <= txTo).reduce((s, t) => s + (t.monto || 0), 0);
+              const invNow = allPs.filter(p => p.status === "Disponible");
+              const invCostNow = invNow.reduce((s, p) => s + (p.cost || 0), 0);
+              const navNow = cashNow + invCostNow;
+
+              // Profit in period
+              const soldInPeriod = filtered.filter(t => t.tipo === "SELL");
+              const profitPeriod = soldInPeriod.reduce((s, t) => {
+                const p = allPs.find(pc => pc.id === t.pieza_id);
+                return s + ((t.monto || 0) - (p?.cost || 0) - gastosOf(t.pieza_id));
+              }, 0);
+
+              // PDF Export
               const exportPDF = () => {
                 const fl = activeFund === "ALL" ? "Todos los Fondos" : (fundInfo[activeFund]?.short || activeFund);
                 const pl = txFrom && txTo ? `${txFrom} al ${txTo}` : txFrom ? `Desde ${txFrom}` : txTo ? `Hasta ${txTo}` : "Histórico completo";
-                let h = `<html><head><meta charset="UTF-8"><title>Estado de Cuenta — TWR</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;padding:40px;color:#1a1a2e;font-size:11px}h1{font-size:22px}h2{font-size:13px;color:#666;margin-bottom:20px}.hdr{display:flex;justify-content:space-between;margin-bottom:30px;padding-bottom:15px;border-bottom:2px solid #C9A96E}.bl{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}.bl>div{padding:12px;border-radius:8px;text-align:center;background:#f8f9fa;border:1px solid #e9ecef}.bl .lb{font-size:10px;color:#666;text-transform:uppercase}.bl .vl{font-size:16px;font-weight:700}table{width:100%;border-collapse:collapse}th{text-align:left;padding:8px 6px;border-bottom:2px solid #C9A96E;font-size:10px;text-transform:uppercase;color:#666}td{padding:6px;border-bottom:1px solid #eee;font-size:10px}.r{text-align:right}.b{font-weight:600}.cx{opacity:.4;text-decoration:line-through}.gn{color:#16a34a}.rd{color:#dc2626}.ft{margin-top:30px;padding-top:15px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}</style></head><body>`;
+                let h = `<html><head><meta charset="UTF-8"><title>Estado de Cuenta — TWR</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;padding:40px;color:#1a1a2e;font-size:11px}h1{font-size:22px}h2{font-size:13px;color:#666;margin-bottom:20px}.hdr{display:flex;justify-content:space-between;margin-bottom:25px;padding-bottom:12px;border-bottom:2px solid #C9A96E}.bl{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px}.bl>div{padding:10px;border-radius:8px;text-align:center;background:#f8f9fa;border:1px solid #e9ecef}.bl .lb{font-size:9px;color:#666;text-transform:uppercase}.bl .vl{font-size:15px;font-weight:700}.sec{margin:15px 0 8px;font-size:11px;font-weight:700;color:#C9A96E;text-transform:uppercase;letter-spacing:.5px}table{width:100%;border-collapse:collapse}th{text-align:left;padding:6px;border-bottom:2px solid #C9A96E;font-size:9px;text-transform:uppercase;color:#666}td{padding:5px 6px;border-bottom:1px solid #eee;font-size:10px}.r{text-align:right}.b{font-weight:600}.cx{opacity:.4;text-decoration:line-through}.gn{color:#16a34a}.rd{color:#dc2626}.ft{margin-top:25px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}.splt{display:grid;gap:10px;margin-top:10px}.splt>div{padding:8px;border-radius:6px;text-align:center;background:#f0fdf4;border:1px solid #dcfce7}</style></head><body>`;
                 h += `<div class="hdr"><div><h1>The Wrist Room</h1><h2>Estado de Cuenta — ${fl}</h2><div style="font-size:11px">${pl}</div></div><div style="text-align:right;font-size:10px;color:#666">Generado: ${new Date().toLocaleString("es-MX")}</div></div>`;
-                h += `<div class="bl"><div><div class="lb">Saldo Inicial</div><div class="vl">${fmxn(si)}</div></div><div><div class="lb">Entradas</div><div class="vl gn">+${fmxn(ent)}</div></div><div><div class="lb">Salidas</div><div class="vl rd">-${fmxn(sal)}</div></div><div><div class="lb">Saldo Final</div><div class="vl" style="color:${sf>=0?"#16a34a":"#dc2626"}">${fmxn(sf)}</div></div></div>`;
+                if (txFrom) { h += `<div class="sec">Posición Inicial</div><div class="bl"><div><div class="lb">NAV</div><div class="vl">${fmxn(navBefore)}</div></div><div><div class="lb">Cash</div><div class="vl">${fmxn(cashBefore)}</div></div><div><div class="lb">Inventario</div><div class="vl">${fmxn(invCostBefore)}</div></div></div>`; }
+                h += `<div class="sec">Movimientos del Periodo</div><div class="bl" style="grid-template-columns:repeat(4,1fr)"><div><div class="lb">Capital</div><div class="vl gn">+${fmxn(capital)}</div></div><div><div class="lb">Compras</div><div class="vl rd">${fmxn(buys)}</div></div><div><div class="lb">Ventas</div><div class="vl gn">+${fmxn(sells)}</div></div><div><div class="lb">Trades</div><div class="vl">${fmxn(trades)}</div></div></div>`;
+                h += `<div class="sec">Posición Final</div><div class="bl"><div><div class="lb">NAV</div><div class="vl" style="color:${navNow>=0?"#16a34a":"#dc2626"}">${fmxn(navNow)}</div></div><div><div class="lb">Cash</div><div class="vl">${fmxn(cashNow)}</div></div><div><div class="lb">Inventario (${invNow.length} pzs)</div><div class="vl">${fmxn(invCostNow)}</div></div></div>`;
+                if (profitPeriod !== 0) { h += `<div class="sec">Utilidad del Periodo: ${fmxn(profitPeriod)}</div><div class="splt" style="grid-template-columns:repeat(${socios.length},1fr)">${socios.map(s => `<div><div class="lb">${s.name} ${s.participacion}%</div><div class="vl gn">${fmxn(Math.round(profitPeriod * s.participacion / 100))}</div></div>`).join("")}</div>`; }
+                h += `<div class="sec" style="margin-top:20px">Detalle de Movimientos (${filtered.length})</div>`;
                 h += `<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th class="r">Cargo</th><th class="r">Abono</th><th class="r">Saldo</th></tr></thead><tbody>`;
-                let run = si;
+                let run = cashBefore;
                 filtered.forEach(t => { run += (t.monto || 0); const cx = cIds.has(t.id); h += `<tr${cx?' class="cx"':''}><td>${t.fecha}</td><td>${txL(t.tipo)}</td><td>${(t.descripcion||"").replace(/</g,"&lt;")}</td><td class="r rd">${t.monto<0?fmxn(Math.abs(t.monto)):""}</td><td class="r gn">${t.monto>=0?fmxn(t.monto):""}</td><td class="r b">${fmxn(run)}</td></tr>`; });
                 h += `</tbody></table><div class="ft">The Wrist Room · Mérida, Yucatán · ${filtered.length} movimientos · ${pl}</div></body></html>`;
                 const w = window.open("", "_blank"); w.document.write(h); w.document.close(); setTimeout(() => w.print(), 500);
               };
+
               return <>
-                {(txFrom || txTo) && <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Saldo Inicial</div><div className="fd font-bold text-lg text-white">{fmxn(si)}</div></div>
-                  <div className="rounded-xl p-3 text-center" style={{ background: "rgba(74,222,128,.06)" }}><div className="fb text-xs" style={{ color: "var(--gn)" }}>Entradas</div><div className="fd font-bold text-lg" style={{ color: "var(--gn)" }}>+{fmxn(ent)}</div></div>
-                  <div className="rounded-xl p-3 text-center" style={{ background: "rgba(251,113,133,.06)" }}><div className="fb text-xs" style={{ color: "#FB7185" }}>Salidas</div><div className="fd font-bold text-lg" style={{ color: "#FB7185" }}>-{fmxn(sal)}</div></div>
-                  <div className="rounded-xl p-3 text-center" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Saldo Final</div><div className="fd font-bold text-lg" style={{ color: sf >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(sf)}</div></div>
-                </div>}
+                {/* === INVESTMENT SNAPSHOT CARDS === */}
+                {(txFrom || txTo) && <>
+                  {/* Initial Position */}
+                  {txFrom && <Cd className="p-4">
+                    <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--bl)" }}>📊 Posición al {txFrom}</div>
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>NAV</div><div className="fd font-bold text-lg text-white">{fmxn(navBefore)}</div></div>
+                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Cash</div><div className="fd font-bold text-lg" style={{ color: "var(--bl)" }}>{fmxn(cashBefore)}</div></div>
+                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Inventario ({invBefore.length} pzs)</div><div className="fd font-bold text-lg" style={{ color: "var(--gd)" }}>{fmxn(invCostBefore)}</div></div>
+                    </div>
+                  </Cd>}
+
+                  {/* Period Activity */}
+                  <Cd className="p-4">
+                    <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>⚡ Actividad del Periodo</div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                      {capital > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Capital</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>+{fmxn(capital)}</div></div>}
+                      {buys !== 0 && <div className="rounded-lg p-2" style={{ background: "rgba(251,113,133,.06)" }}><div className="fb text-xs" style={{ color: "#FB7185" }}>Compras</div><div className="fd font-bold" style={{ color: "#FB7185" }}>{fmxn(buys)}</div></div>}
+                      {sells > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(74,222,128,.06)" }}><div className="fb text-xs" style={{ color: "var(--gn)" }}>Ventas</div><div className="fd font-bold" style={{ color: "var(--gn)" }}>+{fmxn(sells)}</div></div>}
+                      {trades !== 0 && <div className="rounded-lg p-2" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Trades</div><div className="fd font-bold" style={{ color: "var(--gd)" }}>{trades >= 0 ? "+" : ""}{fmxn(trades)}</div></div>}
+                      {retiros > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(147,51,234,.06)" }}><div className="fb text-xs" style={{ color: "var(--pr)" }}>Retiros</div><div className="fd font-bold" style={{ color: "var(--pr)" }}>-{fmxn(retiros)}</div></div>}
+                      {cancels > 0 && <div className="rounded-lg p-2" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cancelaciones</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>+{fmxn(cancels)}</div></div>}
+                      {devols !== 0 && <div className="rounded-lg p-2" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Devoluciones</div><div className="fd font-bold" style={{ color: "var(--gd)" }}>{fmxn(devols)}</div></div>}
+                    </div>
+                  </Cd>
+
+                  {/* Final Position */}
+                  <Cd className="p-4">
+                    <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gn)" }}>📈 Posición al {txTo || td()}</div>
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>NAV</div><div className="fd font-bold text-xl" style={{ color: navNow >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(navNow)}</div></div>
+                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Cash</div><div className="fd font-bold text-xl" style={{ color: "var(--bl)" }}>{fmxn(cashNow)}</div></div>
+                      <div><div className="fb text-xs" style={{ color: "var(--cd)" }}>Inventario ({invNow.length} pzs)</div><div className="fd font-bold text-xl" style={{ color: "var(--gd)" }}>{fmxn(invCostNow)}</div></div>
+                    </div>
+                    {profitPeriod !== 0 && <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
+                      <div className="fb text-xs font-bold uppercase tracking-widest mb-2" style={{ color: profitPeriod >= 0 ? "var(--gn)" : "var(--rd)" }}>Utilidad del Periodo: {fmxn(profitPeriod)}</div>
+                      <div className="grid gap-3 text-center" style={{ gridTemplateColumns: `repeat(${socios.length}, 1fr)` }}>
+                        {socios.map(s => <div key={s.id} className="rounded-lg p-2" style={{ background: `${s.color}11` }}>
+                          <div className="fb text-xs" style={{ color: s.color }}>{s.name} {s.participacion}%</div>
+                          <div className="fd font-bold text-white">{fmxn(Math.round(profitPeriod * s.participacion / 100))}</div>
+                        </div>)}
+                      </div>
+                    </div>}
+                  </Cd>
+                </>}
+
+                {/* Transaction detail table */}
                 <Cd>
                   <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}>
-                    <span className="fb text-xs" style={{ color: "var(--cd)" }}>{filtered.length} movimientos</span>
+                    <span className="fb text-xs" style={{ color: "var(--cd)" }}>{filtered.length} movimientos{txFrom || txTo ? ` · ${txFrom || "inicio"} → ${txTo || "hoy"}` : ""}</span>
                     <button onClick={exportPDF} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>📄 Exportar PDF</button>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH r>Saldo</TH><TH></TH></tr></thead>
-                      <tbody>{(() => { let run = si; return filtered.map(t => { run += (t.monto || 0); const isR = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL"; const cx = cIds.has(t.id);
+                      <tbody>{(() => { let run = txFrom ? txsBefore.reduce((s, t) => s + (t.monto || 0), 0) : 0; return filtered.map(t => { run += (t.monto || 0); const isR = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL"; const cx = cIds.has(t.id);
                         return <tr key={t.id} className="hover:bg-white/[.02]" style={cx ? { opacity: 0.4 } : {}}><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD><TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD><TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD><TD r><span className="fb text-xs" style={{ color: "var(--cd)" }}>{fmxn(run)}</span></TD><TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }}>↩</button>}</TD></tr>; }); })()}</tbody>
                     </table></div></Cd></>;
             })()}
@@ -2754,7 +2544,7 @@ export default function App() {
                 <div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad</span><div className="fd font-bold" style={{ color: c.decision === "cancelado" ? "var(--cd)" : "var(--gn)" }}>{c.decision === "cancelado" ? <s>{fmxn(c.utilidad)}</s> : fmxn(c.utilidad)}</div></div>
                 {(data.socios || []).map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name}</span><div className="fd font-bold text-white" style={c.decision === "cancelado" ? { textDecoration: "line-through", opacity: 0.5 } : {}}>{fmxn(c.splits?.[s.id] || 0)}</div></div>)}
               </div>}
-              {c.decision === "cancelado" && <div className="fb text-xs mt-2 p-2 rounded-lg text-center" style={{ background: "rgba(251,113,133,.06)", color: "var(--rd)" }}>Este corte fue cancelado — los fondos fueron devueltos</div>}
+              {c.decision === "cancelado" && <div className="fb text-xs mt-2 p-2 rounded-lg text-center" style={{ background: "rgba(251,113,133,.06)", color: "var(--rd)" }}>Corte cancelado — fondos devueltos</div>}
               {c.utilidad === 0 && c.decision !== "cancelado" && <div className="fb text-sm" style={{ color: "var(--cd)" }}>Sin utilidad en este periodo</div>}
             </Cd>)}</div>
           </div>
@@ -3066,8 +2856,8 @@ function RetiroCapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, def
   return <div className="space-y-4">
     {funds.length > 1 && <FundSel value={fund} onChange={setFund} label="¿De qué fondo?" funds={funds} fundInfo={info} />}
     <div className="grid grid-cols-2 gap-3">
-      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash Disponible</div><div className="fd font-bold text-lg text-white">{fmxn(cashInFund)}</div></div>
-      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Capital Invertido</div><div className="fd font-bold text-lg text-white">{fmxn(capInFund)}</div></div>
+      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash</div><div className="fd font-bold text-lg text-white">{fmxn(cashInFund)}</div></div>
+      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Capital</div><div className="fd font-bold text-lg text-white">{fmxn(capInFund)}</div></div>
     </div>
     <Fl label="Motivo" req><div className="grid grid-cols-3 gap-2">
       {[{v:"parcial",l:"Parcial",i:"📤"},{v:"venta",l:"Al Vender",i:"💰"},{v:"total",l:"Total",i:"🏦"}].map(m => <button key={m.v} type="button" onClick={() => { setMotivo(m.v); if (m.v === "total") setAmt(String(Math.max(0, cashInFund))); }} className="p-3 rounded-xl text-center" style={{ background: motivo === m.v ? "rgba(251,113,133,.1)" : "rgba(255,255,255,.03)", border: motivo === m.v ? "1.5px solid rgba(251,113,133,.3)" : "1.5px solid rgba(255,255,255,.06)" }}><div className="text-xl mb-1">{m.i}</div><div className="fb text-xs font-semibold" style={{ color: motivo === m.v ? "#FB7185" : "var(--cd)" }}>{m.l}</div></button>)}
