@@ -1926,6 +1926,7 @@ export default function App() {
   const [activeFund, setActiveFund] = useState("ALL");
   const [txFrom, setTxFrom] = useState("");
   const [txTo, setTxTo] = useState("");
+  const [invSort, setInvSort] = useState({ col: "status", dir: "asc" });
 
   const showToast = (msg, type = "ok") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
@@ -2026,11 +2027,26 @@ export default function App() {
   const fp = useMemo(() => {
     if (!data) return [];
     const s = q.toLowerCase();
-    return (data.pieces || []).filter(p => {
+    const filtered = (data.pieces || []).filter(p => {
       if (activeFund !== "ALL" && p.fondo_id !== activeFund) return false;
       return !s || (p.name || "").toLowerCase().includes(s) || (p.brand || "").toLowerCase().includes(s) || (p.sku || "").toLowerCase().includes(s) || (p.ref || "").toLowerCase().includes(s);
     });
-  }, [data, q, activeFund]);
+    const statusOrder = { "Disponible": 0, "Vendido": 1, "Devuelto": 2, "Corregido": 3 };
+    return filtered.sort((a, b) => {
+      const c = invSort.col;
+      let va, vb;
+      if (c === "status") { va = statusOrder[a.status] ?? 9; vb = statusOrder[b.status] ?? 9; }
+      else if (c === "cost" || c === "price_asked") { va = Number(a[c]) || 0; vb = Number(b[c]) || 0; }
+      else if (c === "brand") { va = (a.brand || "").toLowerCase(); vb = (b.brand || "").toLowerCase(); }
+      else if (c === "name") { va = (a.name || "").toLowerCase(); vb = (b.name || "").toLowerCase(); }
+      else if (c === "sku") { va = a.sku || ""; vb = b.sku || ""; }
+      else if (c === "entry_type") { va = a.entry_type || ""; vb = b.entry_type || ""; }
+      else { va = a[c] ?? ""; vb = b[c] ?? ""; }
+      if (va < vb) return invSort.dir === "asc" ? -1 : 1;
+      if (va > vb) return invSort.dir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [data, q, activeFund, invSort]);
 
   /* ═══ HANDLERS ═══ */
   const hAddPc = useCallback(async (p) => {
@@ -2513,9 +2529,27 @@ export default function App() {
               </div>
             )}
             <div className="relative"><div className="absolute left-3 top-3" style={{ color: "var(--cd)" }}><Ico d={IC.srch} s={16} /></div><input className="ti" style={{ paddingLeft: 36 }} placeholder="Buscar..." value={q} onChange={e => setQ(e.target.value)} /></div>
+            <div className="flex gap-2 flex-wrap">
+              <span className="fb text-xs py-1" style={{ color: "var(--cd)" }}>Ordenar:</span>
+              {[
+                { col: "status", label: "Status" },
+                { col: "cost", label: "Precio" },
+                { col: "brand", label: "Marca" },
+                { col: "name", label: "Nombre" },
+                { col: "sku", label: "SKU" },
+              ].map(s => <button key={s.col} onClick={() => setInvSort(prev => ({ col: s.col, dir: prev.col === s.col && prev.dir === "asc" ? "desc" : "asc" }))} className="fb text-xs px-3 py-1 rounded-full transition-all" style={{ background: invSort.col === s.col ? "rgba(201,169,110,.15)" : "rgba(255,255,255,.04)", color: invSort.col === s.col ? "var(--gd)" : "var(--cd)", border: invSort.col === s.col ? "1px solid rgba(201,169,110,.25)" : "1px solid rgba(255,255,255,.06)" }}>{s.label} {invSort.col === s.col ? (invSort.dir === "asc" ? "↑" : "↓") : ""}</button>)}
+            </div>
             <Cd>
               <div className="overflow-x-auto">
-                <table className="w-full"><thead><tr><TH>SKU</TH><TH>Pieza</TH><TH>Motivo</TH><TH>Origen</TH><TH r>Costo</TH><TH r>Lista</TH><TH>Status</TH><TH></TH></tr></thead>
+                <table className="w-full"><thead><tr>{[
+                  { col: "sku", label: "SKU" },
+                  { col: "name", label: "Pieza" },
+                  { col: "entry_type", label: "Motivo" },
+                  { col: "fondo_id", label: "Origen" },
+                  { col: "cost", label: "Costo", r: true },
+                  { col: "price_asked", label: "Lista", r: true },
+                  { col: "status", label: "Status" },
+                ].map(h => <th key={h.col} onClick={() => setInvSort(prev => ({ col: h.col, dir: prev.col === h.col && prev.dir === "asc" ? "desc" : "asc" }))} className="px-3 py-2.5 fb text-xs font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-white transition-colors" style={{ color: invSort.col === h.col ? "var(--gd)" : "var(--cd)", textAlign: h.r ? "right" : "left", borderBottom: invSort.col === h.col ? "2px solid var(--gd)" : "1px solid rgba(255,255,255,.06)" }}>{h.label} {invSort.col === h.col ? (invSort.dir === "asc" ? "↑" : "↓") : ""}</th>)}<TH></TH></tr></thead>
                   <tbody>{fp.map(p => (
                     <tr key={p.id} className="hover:bg-white/[.02]" style={p.status === "Corregido" ? { opacity: 0.35 } : {}}>
                       <TD><span className="font-mono text-xs" style={{ color: "var(--cd)" }}>{p.sku || "—"}</span></TD>
