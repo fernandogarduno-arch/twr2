@@ -2070,7 +2070,7 @@ export default function App() {
       const targetFund = fund || (activeFund === "ALL" ? "FIC" : activeFund);
       const txs = data?.txs || [];
       const fundCash = txs.reduce((s, t) => t.fondo_id === targetFund ? s + (t.monto || 0) : s, 0);
-      if (amt > fundCash && !confirm(`⚠️ El fondo tiene ${fmxn(fundCash)} disponible pero quieres retirar ${fmxn(amt)}.\n\nEsto dejará el cash en negativo.\n\n¿Continuar?`)) return;
+      if (amt > fundCash && !confirm(`⚠️ El fondo tiene ${fmxn(fundCash)} pero quieres retirar ${fmxn(amt)}.\n\n¿Continuar?`)) return;
       const label = motivo === "venta" ? "Retiro al vender pieza" : motivo === "total" ? "Retiro total de capital" : "Retiro parcial de capital";
       await db.saveTx({ id: uid(), fecha: td(), tipo: "RETIRO_CAPITAL", monto: -(amt), fondo_id: targetFund, descripcion: desc || label, metodo_pago: "Efectivo MXN", partner_id: partner });
       showToast(`Retiro de ${fmxn(amt)} registrado`);
@@ -2079,32 +2079,97 @@ export default function App() {
   }, [refresh, cm, activeFund, fundInfo, data]);
 
   const hCancelRetiro = useCallback(async (tx) => {
-    if (!confirm(`¿Cancelar este retiro?\n\n${tx.descripcion}\nMonto: ${fmxn(Math.abs(tx.monto))}\n\nSe creará una transacción inversa que devuelve el dinero al fondo.`)) return;
+    if (!confirm(`¿Cancelar este retiro?\n\n${tx.descripcion}\nMonto: ${fmxn(Math.abs(tx.monto))}\n\nSe devolverá el dinero al fondo.`)) return;
     try {
       await db.saveTx({ id: uid(), fecha: td(), tipo: "CANCEL_RETIRO", monto: Math.abs(tx.monto), fondo_id: tx.fondo_id, descripcion: `↩ Cancelación: ${tx.descripcion} (ref: ${tx.id})`, metodo_pago: "Reversión", partner_id: tx.partner_id });
-      showToast(`Retiro cancelado — ${fmxn(Math.abs(tx.monto))} devuelto al fondo`);
+      showToast(`Retiro cancelado — ${fmxn(Math.abs(tx.monto))} devuelto`);
       await refresh();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh]);
 
   const hCancelCorte = useCallback(async (corte) => {
-    if (!confirm(`¿Cancelar el corte ${corte.periodo}?\n\nSe revertirán los retiros de utilidades (${fmxn(corte.utilidad)}) y el dinero regresará al fondo.\n\nEl corte se marcará como cancelado.`)) return;
+    if (!confirm(`¿Cancelar el corte ${corte.periodo}?\n\nSe revertirán los retiros (${fmxn(corte.utilidad)}) y el dinero regresará al fondo.`)) return;
     try {
-      // Find all RETIRO txs for this corte
       const retiroTxs = (data?.txs || []).filter(t => t.tipo === "RETIRO" && (t.descripcion || "").includes(corte.periodo));
       for (const tx of retiroTxs) {
-        // Check if not already cancelled
         const alreadyCancelled = (data?.txs || []).some(ct => ct.tipo === "CANCEL_RETIRO" && (ct.descripcion || "").includes(tx.id));
         if (!alreadyCancelled) {
           await db.saveTx({ id: uid(), fecha: td(), tipo: "CANCEL_RETIRO", monto: Math.abs(tx.monto), fondo_id: tx.fondo_id, descripcion: `↩ Cancelación corte ${corte.periodo}: ${tx.descripcion} (ref: ${tx.id})`, metodo_pago: "Reversión", partner_id: tx.partner_id });
         }
       }
-      // Update corte to mark as cancelled
       await sb.from("cortes").update({ decision: "cancelado" }).eq("id", corte.id);
-      showToast(`Corte ${corte.periodo} cancelado — ${fmxn(corte.utilidad)} devuelto al fondo`);
+      showToast(`Corte ${corte.periodo} cancelado — ${fmxn(corte.utilidad)} devuelto`);
       await refresh();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, data]);
+
+  const hDevolucion = useCallback(async (piece) => {
+    const isTrade = piece.exit_type === "trade_out";
+    const isSale = piece.exit_type === "venta";
+    const trRef = piece.trade_ref;
+    const txs = data?.txs || [];
+    const allPieces = data?.pieces || [];
+
+    // Build description of what will happen
+    let desc = `¿Procesar devolución de "${piece.name}" (${piece.sku})?\n\n`;
+    if (isTrade && trRef) {
+      const incomingPieces = allPieces.filter(p => p.trade_ref === trRef && p.entry_type === "trade_in" && p.id !== piece.id);
+      const cashTxs = txs.filter(t => t.trade_ref === trRef && t.monto !== 0 && t.tipo === "TRADE");
+      const cashReceived = cashTxs.filter(t => t.monto > 0).reduce((s, t) => s + t.monto, 0);
+      const cashPaid = cashTxs.filter(t => t.monto < 0).reduce((s, t) => s + Math.abs(t.monto), 0);
+      desc += `TRADE ${trRef}:\n`;
+      desc += `• "${piece.name}" regresa a inventario (Disponible)\n`;
+      incomingPieces.forEach(p => { desc += `• "${p.name}" (${p.sku}) → marcada como Devuelto\n`; });
+      if (cashReceived > 0) desc += `• ${fmxn(cashReceived)} que se recibió → sale del fondo\n`;
+      if (cashPaid > 0) desc += `• ${fmxn(cashPaid)} que se pagó → regresa al fondo\n`;
+    } else if (isSale) {
+      const sellTx = txs.find(t => t.pieza_id === piece.id && t.tipo === "SELL");
+      desc += `• "${piece.name}" regresa a inventario (Disponible)\n`;
+      if (sellTx) desc += `• ${fmxn(sellTx.monto)} de la venta → sale del fondo\n`;
+    }
+    desc += `\nTodo quedará registrado en el historial.`;
+
+    if (!confirm(desc)) return;
+
+    try {
+      if (isTrade && trRef) {
+        // 1. Revert the piece back to Disponible
+        await db.savePiece({ id: piece.id, status: "Disponible", stage: "inventario", exit_type: null, exit_fund: null });
+
+        // 2. Mark incoming pieces as Devuelto
+        const incomingPieces = allPieces.filter(p => p.trade_ref === trRef && p.entry_type === "trade_in" && p.id !== piece.id);
+        for (const ip of incomingPieces) {
+          if (ip.status === "Disponible") {
+            await db.savePiece({ id: ip.id, status: "Devuelto", stage: "cancelado", devolucion_de: piece.id, devolucion_fecha: td() });
+          }
+        }
+
+        // 3. Reverse cash transactions
+        const tradeTxs = txs.filter(t => t.trade_ref === trRef && t.tipo === "TRADE");
+        for (const tx of tradeTxs) {
+          if (tx.monto !== 0) {
+            await db.saveTx({ id: uid(), fecha: td(), tipo: "DEVOLUCION", pieza_id: piece.id, monto: -(tx.monto), fondo_id: tx.fondo_id, descripcion: `↩ Devolución ${trRef}: reversa de "${tx.descripcion}" (ref: ${tx.id})`, metodo_pago: "Reversión", trade_ref: trRef });
+          }
+        }
+
+        // 4. Main devolucion TX
+        await db.saveTx({ id: uid(), fecha: td(), tipo: "DEVOLUCION", pieza_id: piece.id, monto: 0, fondo_id: piece.fondo_id, descripcion: `↩ Devolución ${trRef}: ${piece.name} regresa a inventario`, metodo_pago: "Devolución", trade_ref: trRef });
+
+      } else if (isSale) {
+        // 1. Revert piece
+        await db.savePiece({ id: piece.id, status: "Disponible", stage: "inventario", exit_type: null, exit_fund: null });
+
+        // 2. Reverse sale TX
+        const sellTx = txs.find(t => t.pieza_id === piece.id && t.tipo === "SELL");
+        if (sellTx) {
+          await db.saveTx({ id: uid(), fecha: td(), tipo: "DEVOLUCION", pieza_id: piece.id, monto: -(sellTx.monto), fondo_id: sellTx.fondo_id, descripcion: `↩ Devolución venta: ${piece.name} — reversa de ${fmxn(sellTx.monto)} (ref: ${sellTx.id})`, metodo_pago: "Reversión" });
+        }
+      }
+
+      showToast(`Devolución procesada: ${piece.name} regresa a inventario`);
+      await refresh(); cm();
+    } catch (e) { alert("Error: " + e.message); }
+  }, [refresh, cm, data]);
 
   const logout = async () => { await sb.auth.signOut(); setUser(null); setData(null); };
 
@@ -2339,7 +2404,7 @@ export default function App() {
                       <TD><Bd text={etLabel(p.entry_type)} v={p.entry_type === "trade_in" ? "gold" : "blue"} /></TD>
                       <TD><Bd text={fundInfo[p.fondo_id]?.short || p.fondo_id || "—"} v="gold" /></TD>
                       <TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD>
-                      <TD><Bd text={p.status} v={p.status === "Disponible" ? "green" : p.status === "Vendido" ? "purple" : "default"} /></TD>
+                      <TD><Bd text={p.status} v={p.status === "Disponible" ? "green" : p.status === "Vendido" ? "purple" : p.status === "Devuelto" ? "red" : "default"} /></TD>
                       <TD>
                         <div className="flex gap-1">
                           <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--cd)" }} onClick={() => { setSel(p); setModal("ep"); }}><Ico d={IC.edit} s={14} /></button>
@@ -2347,6 +2412,7 @@ export default function App() {
                             <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--gn)" }} onClick={() => { setSel(p); setModal("sell"); }}><Ico d={IC.chk} s={14} /></button>
                             <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--gd)" }} onClick={() => { setSel(p); setModal("trade"); }}><Ico d={IC.swap} s={14} /></button>
                           </>}
+                          {(p.status === "Vendido") && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }} onClick={() => hDevolucion(p)} title="Devolver / Cancelar operación">↩</button>}
                         </div>
                       </TD>
                     </tr>
@@ -2364,28 +2430,23 @@ export default function App() {
             <Cd>
               <div className="overflow-x-auto">
                 {(() => {
-                  const filteredTxs = (data.txs || []).filter(t => activeFund === "ALL" || t.fondo_id === activeFund);
-                  const cancelledIds = new Set(filteredTxs.filter(t => t.tipo === "CANCEL_RETIRO").map(t => { const m = (t.descripcion || "").match(/ref: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
-                  const txLabel = (t) => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL" }[t] || t);
-                  const txColor = (t) => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue" }[t] || "gold");
-                  return (
-                    <table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH></TH></tr></thead>
-                      <tbody>{filteredTxs.map(t => {
-                        const isRetiro = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL";
-                        const isCancelled = cancelledIds.has(t.id);
-                        return (
-                          <tr key={t.id} className="hover:bg-white/[.02]" style={isCancelled ? { opacity: 0.4 } : {}}>
-                            <TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD>
-                            <TD><Bd text={txLabel(t.tipo)} v={txColor(t.tipo)} /></TD>
-                            <TD><span style={isCancelled ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{isCancelled && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD>
-                            <TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD>
-                            <TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD>
-                            <TD>{isRetiro && !isCancelled && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185", border: "1px solid rgba(251,113,133,.2)" }} title="Cancelar retiro">↩</button>}</TD>
-                          </tr>
-                        );
-                      })}</tbody>
-                    </table>
-                  );
+                  const ftx = (data.txs || []).filter(t => activeFund === "ALL" || t.fondo_id === activeFund);
+                  const cancelIds = new Set(ftx.filter(t => t.tipo === "CANCEL_RETIRO" || t.tipo === "DEVOLUCION").map(t => { const m = (t.descripcion || "").match(/ref: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
+                  const txL = (t) => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL", DEVOLUCION: "↩ DEVOL" }[t] || t);
+                  const txC = (t) => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue", DEVOLUCION: "gold" }[t] || "gold");
+                  return <table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH></TH></tr></thead>
+                    <tbody>{ftx.map(t => {
+                      const isR = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL";
+                      const cx = cancelIds.has(t.id);
+                      return <tr key={t.id} className="hover:bg-white/[.02]" style={cx ? { opacity: 0.4 } : {}}>
+                        <TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD>
+                        <TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD>
+                        <TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD>
+                        <TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD>
+                        <TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD>
+                        <TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185", border: "1px solid rgba(251,113,133,.2)" }}>↩</button>}</TD>
+                      </tr>;
+                    })}</tbody></table>;
                 })()}
               </div>
             </Cd>
@@ -2403,18 +2464,14 @@ export default function App() {
                 <span className="fd font-semibold text-white">{c.periodo}</span>
                 <span className="fb text-sm" style={{ color: "var(--cd)" }}>{c.label}</span>
                 <Bd text={c.decision === "retirar" ? "💰 Retirado" : c.decision === "cancelado" ? "❌ Cancelado" : "🔄 Reinvertido"} v={c.decision === "retirar" ? "green" : c.decision === "cancelado" ? "red" : "blue"} />
-                {c.decision === "retirar" && c.utilidad > 0 && (
-                  <button onClick={() => hCancelCorte(c)} className="fb text-xs px-3 py-1 rounded-lg ml-auto transition-all hover:brightness-110" style={{ background: "rgba(251,113,133,.1)", color: "#FB7185", border: "1px solid rgba(251,113,133,.2)" }}>
-                    ↩ Cancelar Retiro
-                  </button>
-                )}
+                {c.decision === "retirar" && c.utilidad > 0 && <button onClick={() => hCancelCorte(c)} className="fb text-xs px-3 py-1 rounded-lg ml-auto" style={{ background: "rgba(251,113,133,.1)", color: "#FB7185", border: "1px solid rgba(251,113,133,.2)" }}>↩ Cancelar Retiro</button>}
               </div>
               {c.utilidad > 0 && <div className={`grid gap-3 text-center py-2 rounded-xl`} style={{ background: "rgba(255,255,255,.03)", gridTemplateColumns: `repeat(${(data.socios?.length || 0) + 1}, 1fr)` }}>
                 <div><span className="fb text-xs" style={{ color: "var(--cd)" }}>Utilidad</span><div className="fd font-bold" style={{ color: c.decision === "cancelado" ? "var(--cd)" : "var(--gn)" }}>{c.decision === "cancelado" ? <s>{fmxn(c.utilidad)}</s> : fmxn(c.utilidad)}</div></div>
                 {(data.socios || []).map(s => <div key={s.id}><span className="fb text-xs" style={{ color: s.color }}>{s.name}</span><div className="fd font-bold text-white" style={c.decision === "cancelado" ? { textDecoration: "line-through", opacity: 0.5 } : {}}>{fmxn(c.splits?.[s.id] || 0)}</div></div>)}
               </div>}
               {c.decision === "cancelado" && <div className="fb text-xs mt-2 p-2 rounded-lg text-center" style={{ background: "rgba(251,113,133,.06)", color: "var(--rd)" }}>Este corte fue cancelado — los fondos fueron devueltos</div>}
-              {c.utilidad === 0 && <div className="fb text-sm" style={{ color: "var(--cd)" }}>Sin utilidad en este periodo</div>}
+              {c.utilidad === 0 && c.decision !== "cancelado" && <div className="fb text-sm" style={{ color: "var(--cd)" }}>Sin utilidad en este periodo</div>}
             </Cd>)}</div>
           </div>
         )}
@@ -2725,59 +2782,28 @@ function RetiroCapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, def
   const [fund, setFund] = useState(defaultFund || funds[0] || "FIC");
   const [motivo, setMotivo] = useState("parcial");
   const [saving, setSaving] = useState(false);
-
   const cashInFund = (txs || []).reduce((s, t) => t.fondo_id === fund ? s + (t.monto || 0) : s, 0);
   const capInFund = (txs || []).filter(t => t.fondo_id === fund && t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
-
-  const handleSave = async () => {
-    if (!amt || saving || Number(amt) <= 0) return;
-    setSaving(true);
-    try { await onSave(Number(amt), desc, partner, fund, motivo); } catch(e) { alert("Error: " + e.message); setSaving(false); }
-  };
-
+  const handleSave = async () => { if (!amt || saving || Number(amt) <= 0) return; setSaving(true); try { await onSave(Number(amt), desc, partner, fund, motivo); } catch(e) { alert("Error: " + e.message); setSaving(false); } };
   return <div className="space-y-4">
     {funds.length > 1 && <FundSel value={fund} onChange={setFund} label="¿De qué fondo?" funds={funds} fundInfo={info} />}
     {funds.length === 1 && <div className="fb text-xs p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)", color: "var(--gd)" }}>{info[funds[0]]?.icon} Fondo: {info[funds[0]]?.short}</div>}
-
     <div className="grid grid-cols-2 gap-3">
-      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}>
-        <div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash Disponible</div>
-        <div className="fd font-bold text-lg text-white">{fmxn(cashInFund)}</div>
-      </div>
-      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(201,169,110,.06)" }}>
-        <div className="fb text-xs" style={{ color: "var(--gd)" }}>Capital Invertido</div>
-        <div className="fd font-bold text-lg text-white">{fmxn(capInFund)}</div>
-      </div>
+      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash Disponible</div><div className="fd font-bold text-lg text-white">{fmxn(cashInFund)}</div></div>
+      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Capital Invertido</div><div className="fd font-bold text-lg text-white">{fmxn(capInFund)}</div></div>
     </div>
-
-    <Fl label="Motivo del Retiro" req>
-      <div className="grid grid-cols-3 gap-2">
-        {[{v:"parcial",l:"Retiro Parcial",i:"📤"},{v:"venta",l:"Al Vender Pieza",i:"💰"},{v:"total",l:"Retiro Total",i:"🏦"}].map(m => (
-          <button key={m.v} type="button" onClick={() => { setMotivo(m.v); if (m.v === "total") setAmt(String(Math.max(0, cashInFund))); }}
-            className="p-3 rounded-xl text-center transition-all" style={{ background: motivo === m.v ? "rgba(251,113,133,.1)" : "rgba(255,255,255,.03)", border: motivo === m.v ? "1.5px solid rgba(251,113,133,.3)" : "1.5px solid rgba(255,255,255,.06)" }}>
-            <div className="text-xl mb-1">{m.i}</div>
-            <div className="fb text-xs font-semibold" style={{ color: motivo === m.v ? "#FB7185" : "var(--cd)" }}>{m.l}</div>
-          </button>
-        ))}
-      </div>
-    </Fl>
-
+    <Fl label="Motivo del Retiro" req><div className="grid grid-cols-3 gap-2">
+      {[{v:"parcial",l:"Retiro Parcial",i:"📤"},{v:"venta",l:"Al Vender Pieza",i:"💰"},{v:"total",l:"Retiro Total",i:"🏦"}].map(m => <button key={m.v} type="button" onClick={() => { setMotivo(m.v); if (m.v === "total") setAmt(String(Math.max(0, cashInFund))); }} className="p-3 rounded-xl text-center transition-all" style={{ background: motivo === m.v ? "rgba(251,113,133,.1)" : "rgba(255,255,255,.03)", border: motivo === m.v ? "1.5px solid rgba(251,113,133,.3)" : "1.5px solid rgba(255,255,255,.06)" }}><div className="text-xl mb-1">{m.i}</div><div className="fb text-xs font-semibold" style={{ color: motivo === m.v ? "#FB7185" : "var(--cd)" }}>{m.l}</div></button>)}
+    </div></Fl>
     <Fl label="¿Quién retira?" req><div className="space-y-2">{sl.map(s => <button key={s.id} type="button" onClick={() => setPartner(s.id)} className="w-full flex items-center gap-3 p-3 rounded-xl" style={{ background: partner === s.id ? "rgba(251,113,133,.1)" : "rgba(255,255,255,.02)", border: partner === s.id ? "1.5px solid rgba(251,113,133,.3)" : "1.5px solid rgba(255,255,255,.06)" }}><div className="w-8 h-8 rounded-lg flex items-center justify-center fb text-xs font-bold" style={{ background: `${s.color}20`, color: s.color }}>{s.participacion}%</div><div className="text-left"><div className="fb text-sm font-semibold text-white">{s.name}</div></div>{partner === s.id && <div className="ml-auto" style={{ color: "#FB7185" }}>✓</div>}</button>)}</div></Fl>
-
     <Fl label="Monto a Retirar (MXN)" req>
       <input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={amt} onChange={e => setAmt(e.target.value)} />
       {Number(amt) > cashInFund && <div className="fb text-xs mt-1 p-2 rounded-lg" style={{ background: "rgba(251,113,133,.08)", color: "var(--rd)" }}>⚠️ Excede el cash disponible ({fmxn(cashInFund)})</div>}
       {Number(amt) > 0 && Number(amt) <= cashInFund && <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Cash después del retiro: {fmxn(cashInFund - Number(amt))}</div>}
     </Fl>
-
     <Fl label="Descripción"><input className="ti" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Motivo del retiro..." /></Fl>
-
     <div className="flex gap-3">
-      <button type="button" onClick={handleSave} disabled={saving || !amt || Number(amt) <= 0}
-        className="fb px-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:brightness-110 active:scale-[.98] disabled:opacity-40 disabled:cursor-not-allowed"
-        style={{ background: "rgba(251,113,133,.15)", color: "#FB7185", border: "1px solid rgba(251,113,133,.25)" }}>
-        {saving ? "Procesando..." : `Retirar ${amt ? fmxn(Number(amt)) : ""}`}
-      </button>
+      <button type="button" onClick={handleSave} disabled={saving || !amt || Number(amt) <= 0} className="fb px-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:brightness-110 active:scale-[.98] disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "rgba(251,113,133,.15)", color: "#FB7185", border: "1px solid rgba(251,113,133,.25)" }}>{saving ? "Procesando..." : `Retirar ${amt ? fmxn(Number(amt)) : ""}`}</button>
       <BtnS onClick={onClose} disabled={saving}>Cancelar</BtnS>
     </div>
   </div>;
