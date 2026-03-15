@@ -1003,6 +1003,9 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
   const [aiResult, setAiResult] = useState(null);
   const [saving, setSaving] = useState(false);
   const fromFund = Math.max(0, (f.cost || 0) - newCapital);
+  const cashInFund = f.fondo_id && f.fondo_id !== "NA" ? (txsProp || []).reduce((s, t) => t.fondo_id === f.fondo_id ? s + (t.monto || 0) : s, 0) : 0;
+  const cashAfter = cashInFund - (f.cost || 0) + newCapital;
+  const needsMore = f.fondo_id !== "NA" && f.cost > 0 && cashAfter < 0 && !combinedFin;
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const autoName = (b, m) => [b, m].filter(Boolean).join(" ");
 
@@ -1198,12 +1201,12 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                 💰 Se registrará una inyección de capital de <strong>{fmxn(f.cost)}</strong> al Fondo de Inversión Compartida (FIC).
               </div>
             )}
-            {!piece && f.cost > 0 && f.fondo_id !== "NA" && (
+            {!piece && f.cost > 0 && f.fondo_id !== "NA" && f.entry_type !== "trade_in" && (
               <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={combinedFin} onChange={e => { setCombinedFin(e.target.checked); if (!e.target.checked) setNewCapital(0); }} className="w-4 h-4 rounded" />
+                  <input type="checkbox" checked={combinedFin} onChange={e => { setCombinedFin(e.target.checked); if (!e.target.checked) setNewCapital(0); else if (cashAfter < 0) setNewCapital(Math.abs(cashInFund - f.cost)); }} className="w-4 h-4 rounded" />
                   <span className="fb text-sm text-white">Financiamiento combinado</span>
-                  <span className="fb text-xs" style={{ color: "var(--cd)" }}>— No alcanza el fondo, necesito aportar</span>
+                  <span className="fb text-xs" style={{ color: "var(--cd)" }}>— Fondo + aportación nueva</span>
                 </label>
                 {combinedFin && (
                   <div className="mt-3 space-y-3">
@@ -1220,6 +1223,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                     <Fl label="Monto de nueva aportación (MXN)" hint="Se registra como inyección de capital al fondo">
                       <input type="number" className="ti" value={newCapital || ""} onChange={e => { const v = Math.min(Number(e.target.value), f.cost); setNewCapital(v); }} />
                     </Fl>
+                    {newCapital > 0 && <div className="fb text-xs text-center" style={{ color: cashAfter >= 0 ? "var(--gn)" : "var(--rd)" }}>Cash en fondo después: {fmxn(cashAfter)} {cashAfter >= 0 ? "✓" : "⚠️ aún falta"}</div>}
                   </div>
                 )}
               </div>
@@ -1238,6 +1242,25 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
               <input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={f.cost || ""}
                 onChange={e => { const n = Number(e.target.value); sF(p => ({ ...p, cost: n, ...calcPr(n) })); }} />
             </Fl>
+            {/* Live cash indicator */}
+            {f.cost > 0 && f.fondo_id && f.fondo_id !== "NA" && f.entry_type !== "trade_in" && (
+              <div className="mt-2 rounded-xl p-3" style={{ background: cashAfter >= 0 ? "rgba(74,222,128,.04)" : "rgba(251,113,133,.06)", border: `1px solid ${cashAfter >= 0 ? "rgba(74,222,128,.1)" : "rgba(251,113,133,.15)"}` }}>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash actual</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>{fmxn(cashInFund)}</div></div>
+                  <div><div className="fb text-xs" style={{ color: "var(--rd)" }}>Costo pieza</div><div className="fd font-bold" style={{ color: "var(--rd)" }}>-{fmxn(f.cost)}</div></div>
+                  <div><div className="fb text-xs" style={{ color: cashAfter >= 0 ? "var(--gn)" : "var(--rd)" }}>{combinedFin ? "Después (con aporte)" : "Después"}</div><div className="fd font-bold" style={{ color: cashAfter >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(cashAfter)}</div></div>
+                </div>
+                {cashAfter < 0 && !combinedFin && (
+                  <div className="mt-2 text-center">
+                    <div className="fb text-xs mb-2" style={{ color: "var(--rd)" }}>⚠️ Faltan {fmxn(Math.abs(cashAfter))} en el fondo</div>
+                    <button type="button" onClick={() => { setCombinedFin(true); setNewCapital(Math.abs(cashAfter)); }} className="fb text-xs px-4 py-2 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>
+                      💰 Cubrir faltante con nueva aportación ({fmxn(Math.abs(cashAfter))})
+                    </button>
+                  </div>
+                )}
+                {cashAfter >= 0 && <div className="mt-1 text-center fb text-xs" style={{ color: "var(--gn)" }}>✓ El fondo cubre esta compra</div>}
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-2 mt-2">
               <Fl label="Dealer +8%"><input type="number" className="ti" value={f.price_dealer || ""} onChange={e => u("price_dealer", Number(e.target.value))} /></Fl>
               <Fl label="Lista +15%"><input type="number" className="ti" value={f.price_asked || ""} onChange={e => u("price_asked", Number(e.target.value))} /></Fl>
