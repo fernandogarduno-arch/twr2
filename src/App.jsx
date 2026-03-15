@@ -2117,7 +2117,7 @@ export default function App() {
         // Create incoming pieces (track created for unique SKU)
         const created = [...(data.pieces || [])];
         for (const item of incoming) {
-          const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: p.xDate, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${p.sku || ""} (${p.name || ""} ref ${p.ref || ""})`.trim(), trade_ref: trRef };
+          const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: p.xDate, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${p.sku || ""} (${p.name || ""} ref ${p.ref || ""})`.trim(), trade_ref: trRef };
           created.push(np);
           await db.savePiece(np);
         }
@@ -2160,7 +2160,7 @@ export default function App() {
       const created = [...(data.pieces || [])];
       for (const item of incoming) {
         const outDesc = outPieces.map(op => `${op.sku || ""} (${op.name || ""} ref ${op.ref || ""})`).join(" + ");
-        const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: date, cost: item.value, ...calcPr(item.value), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${outDesc}`.trim(), trade_ref: trRef };
+        const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: date, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${outDesc}`.trim(), trade_ref: trRef };
         created.push(np);
         await db.savePiece(np);
       }
@@ -2243,6 +2243,50 @@ export default function App() {
       const updatedPiece = { ...piece, status: "Disponible", stage: "inventario", exit_type: null, exit_fund: null };
       setSel(updatedPiece);
       setModal("post_dev");
+    } catch (e) { alert("Error: " + e.message); }
+  }, [refresh, cm, data]);
+
+  const hCorregir = useCallback(async (piece) => {
+    const txs = data?.txs || [];
+    const pieceTxs = txs.filter(t => t.pieza_id === piece.id);
+    const tradeTxs = piece.trade_ref ? txs.filter(t => t.trade_ref === piece.trade_ref) : [];
+    const allRelated = [...new Map([...pieceTxs, ...tradeTxs].map(t => [t.id, t])).values()];
+    const nonZero = allRelated.filter(t => t.monto !== 0 && t.tipo !== "CORRECCION");
+    const netEffect = allRelated.reduce((s, t) => s + (t.monto || 0), 0);
+
+    let desc = `¿Corregir "${piece.name}" (${piece.sku})?\n\n`;
+    desc += `Esta acción NO borra nada — marca la pieza como "Corregido" y crea transacciones inversas.\n\n`;
+    desc += `Se revertirán ${nonZero.length} transacción(es):\n`;
+    nonZero.forEach(t => { desc += `  • ${t.tipo} ${t.monto >= 0 ? "+" : ""}${fmxn(t.monto)} — ${(t.descripcion || "").slice(0, 50)}\n`; });
+    if (netEffect !== 0) desc += `\nEfecto neto en cash: ${netEffect > 0 ? "-" : "+"}${fmxn(Math.abs(netEffect))}`;
+
+    if (!confirm(desc)) return;
+    try {
+      // Create reversal for each non-zero transaction
+      for (const tx of nonZero) {
+        // Skip if already corrected
+        const alreadyCorrected = txs.some(ct => ct.tipo === "CORRECCION" && (ct.descripcion || "").includes(tx.id));
+        if (alreadyCorrected) continue;
+        await db.saveTx({
+          id: uid(), fecha: td(), tipo: "CORRECCION", pieza_id: piece.id,
+          monto: -(tx.monto), fondo_id: tx.fondo_id,
+          descripcion: `⊘ Corrección: ${tx.descripcion || tx.tipo} (ref: ${tx.id})`,
+          metodo_pago: "Corrección", trade_ref: tx.trade_ref || null
+        });
+      }
+      // Mark piece as Corregido
+      await db.savePiece({ id: piece.id, status: "Corregido", stage: "corregido" });
+      // If trade, also mark related trade_in pieces as Corregido
+      if (piece.trade_ref) {
+        const relatedPieces = (data?.pieces || []).filter(p => p.trade_ref === piece.trade_ref && p.id !== piece.id && p.entry_type === "trade_in");
+        for (const rp of relatedPieces) {
+          if (rp.status !== "Corregido" && rp.status !== "Vendido") {
+            await db.savePiece({ id: rp.id, status: "Corregido", stage: "corregido" });
+          }
+        }
+      }
+      showToast(`"${piece.name}" marcada como Corregido`);
+      await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, data]);
 
@@ -2473,13 +2517,13 @@ export default function App() {
               <div className="overflow-x-auto">
                 <table className="w-full"><thead><tr><TH>SKU</TH><TH>Pieza</TH><TH>Motivo</TH><TH>Origen</TH><TH r>Costo</TH><TH r>Lista</TH><TH>Status</TH><TH></TH></tr></thead>
                   <tbody>{fp.map(p => (
-                    <tr key={p.id} className="hover:bg-white/[.02]">
+                    <tr key={p.id} className="hover:bg-white/[.02]" style={p.status === "Corregido" ? { opacity: 0.35 } : {}}>
                       <TD><span className="font-mono text-xs" style={{ color: "var(--cd)" }}>{p.sku || "—"}</span></TD>
                       <TD b>{p.name} {p.publish_catalog && <span title="En catálogo público" style={{ color: "var(--gn)" }}>●</span>}</TD>
                       <TD><Bd text={etLabel(p.entry_type)} v={p.entry_type === "trade_in" ? "gold" : "blue"} /></TD>
                       <TD><Bd text={fundInfo[p.fondo_id]?.short || p.fondo_id || "—"} v="gold" /></TD>
                       <TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD>
-                      <TD><Bd text={p.status} v={p.status === "Disponible" ? "green" : p.status === "Vendido" ? "purple" : p.status === "Devuelto" ? "red" : "default"} /></TD>
+                      <TD><Bd text={p.status} v={p.status === "Disponible" ? "green" : p.status === "Vendido" ? "purple" : p.status === "Devuelto" ? "red" : p.status === "Corregido" ? "default" : "default"} /></TD>
                       <TD>
                         <div className="flex gap-1">
                           <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--cd)" }} onClick={() => { setSel(p); setModal("ep"); }}><Ico d={IC.edit} s={14} /></button>
@@ -2488,6 +2532,7 @@ export default function App() {
                             <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--gd)" }} onClick={() => { setSel(p); setModal("trade"); }}><Ico d={IC.swap} s={14} /></button>
                           </>}
                           {p.status === "Vendido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }} onClick={() => hDevolucion(p)} title="Devolver">↩</button>}
+                          {p.status !== "Corregido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#F59E0B" }} onClick={() => hCorregir(p)} title="Corregir entrada">⊘</button>}
                         </div>
                       </TD>
                     </tr>
@@ -2504,9 +2549,9 @@ export default function App() {
           const allTx = (data.txs || []).filter(t => activeFund === "ALL" || t.fondo_id === activeFund).sort((a, b) => a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0);
           const allPs = (data.pieces || []).filter(p => activeFund === "ALL" || p.fondo_id === activeFund);
           const fil = allTx.filter(t => (!txFrom || t.fecha >= txFrom) && (!txTo || t.fecha <= txTo));
-          const cIds = new Set(allTx.filter(t => t.tipo === "CANCEL_RETIRO" || t.tipo === "DEVOLUCION").map(t => { const m = (t.descripcion || "").match(/ref: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
-          const txL = t => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL", DEVOLUCION: "↩ DEVOL" }[t] || t);
-          const txC = t => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue", DEVOLUCION: "gold", TRADE: "gold" }[t] || "gold");
+          const cIds = new Set(allTx.filter(t => t.tipo === "CANCEL_RETIRO" || t.tipo === "DEVOLUCION" || t.tipo === "CORRECCION").map(t => { const m = (t.descripcion || "").match(/ref: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
+          const txL = t => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL", DEVOLUCION: "↩ DEVOL", CORRECCION: "⊘ CORREC" }[t] || t);
+          const txC = t => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue", DEVOLUCION: "gold", TRADE: "gold", CORRECCION: "default" }[t] || "gold");
           const socios = data.socios || [], gc = data.costos || [];
           const gOf = pid => gc.filter(c => c.pieza_id === pid).reduce((s, c) => s + (Number(c.monto) || 0), 0);
           const bef = txFrom ? allTx.filter(t => t.fecha < txFrom) : [];
@@ -2514,7 +2559,7 @@ export default function App() {
           const bB = bef.filter(t => t.tipo === "BUY").map(t => t.pieza_id), sB = bef.filter(t => t.tipo === "SELL").map(t => t.pieza_id);
           const iB = txFrom ? allPs.filter(p => bB.includes(p.id) && !sB.includes(p.id)) : []; const iBC = iB.reduce((s, p) => s + (p.cost || 0), 0);
           const act = {}; fil.forEach(t => { const k = t.tipo; if (!act[k]) act[k] = { n: 0, i: 0, o: 0 }; act[k].n++; if (t.monto > 0) act[k].i += t.monto; else act[k].o += Math.abs(t.monto); });
-          const AL = { CAPITAL: { l: "Capital", i: "💰", c: "var(--bl)" }, BUY: { l: "Compras", i: "🛒", c: "var(--rd)" }, SELL: { l: "Ventas", i: "💵", c: "var(--gn)" }, TRADE: { l: "Trades", i: "🔄", c: "var(--gd)" }, RETIRO: { l: "Retiros Util.", i: "📤", c: "#FB7185" }, RETIRO_CAPITAL: { l: "Retiro Cap.", i: "↑", c: "#FB7185" }, CANCEL_RETIRO: { l: "Cancel.", i: "↩", c: "var(--bl)" }, DEVOLUCION: { l: "Devol.", i: "↩", c: "var(--gd)" } };
+          const AL = { CAPITAL: { l: "Capital", i: "💰", c: "var(--bl)" }, BUY: { l: "Compras", i: "🛒", c: "var(--rd)" }, SELL: { l: "Ventas", i: "💵", c: "var(--gn)" }, TRADE: { l: "Trades", i: "🔄", c: "var(--gd)" }, RETIRO: { l: "Retiros Util.", i: "📤", c: "#FB7185" }, RETIRO_CAPITAL: { l: "Retiro Cap.", i: "↑", c: "#FB7185" }, CANCEL_RETIRO: { l: "Cancel.", i: "↩", c: "var(--bl)" }, DEVOLUCION: { l: "Devol.", i: "↩", c: "var(--gd)" }, CORRECCION: { l: "Correcciones", i: "⊘", c: "#F59E0B" } };
           const cF = cI + fil.reduce((s, t) => s + (t.monto || 0), 0);
           const iN = allPs.filter(p => p.status === "Disponible"), iNC = iN.reduce((s, p) => s + (p.cost || 0), 0);
           const sP = fil.filter(t => t.tipo === "SELL");
@@ -2558,9 +2603,9 @@ export default function App() {
               <div className="rounded-lg p-2" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Total</div><div className="fd font-bold" style={{ color: uP >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(uP)}</div></div>
             </div></div>}
             </Cd>
-            <Cd><div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}><span className="fb text-xs font-bold" style={{ color: "var(--cd)" }}>Detalle ({fil.length})</span></div><div className="overflow-x-auto"><table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH r>Saldo</TH><TH></TH></tr></thead>
-              <tbody>{(() => { let rn = cI; return fil.map(t => { rn += (t.monto || 0); const isR = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL"; const cx = cIds.has(t.id);
-                return <tr key={t.id} className="hover:bg-white/[.02]" style={cx ? { opacity: 0.4 } : {}}><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD><TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD><TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD><TD r><span className="fb text-xs" style={{ color: "var(--cd)" }}>{fmxn(rn)}</span></TD><TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }}>↩</button>}</TD></tr>; }); })()}</tbody>
+            <Cd><div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}><span className="fb text-xs font-bold" style={{ color: "var(--cd)" }}>Detalle ({fil.length}) — más recientes primero</span></div><div className="overflow-x-auto"><table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH r>Saldo</TH><TH></TH></tr></thead>
+              <tbody>{(() => { let rn = cI; const rows = fil.map(t => { rn += (t.monto || 0); return { ...t, _saldo: rn }; }); return rows.slice().reverse().map(t => { const isR = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL"; const cx = cIds.has(t.id);
+                return <tr key={t.id} className="hover:bg-white/[.02]" style={cx ? { opacity: 0.4 } : {}}><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD><TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD><TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD><TD r><span className="fb text-xs" style={{ color: "var(--cd)" }}>{fmxn(t._saldo)}</span></TD><TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }}>↩</button>}</TD></tr>; }); })()}</tbody>
             </table></div></Cd>
           </div>;
         })()}
