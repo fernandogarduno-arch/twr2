@@ -76,7 +76,7 @@ const db = {
     const { data } = await sb.from("transaccion_docs").select("*").eq("entidad_tipo", entType).eq("entidad_id", entId);
     return data || [];
   },
-  async savePiece(p) { const clean = { ...p }; ["supplier_id", "ref_id", "socio_aporta_id", "client_id"].forEach(k => { if (clean[k] === "") clean[k] = null; }); const { error } = await sb.from("piezas").upsert(clean); if (error) throw error; },
+  async savePiece(p) { const clean = { ...p }; ["supplier_id", "ref_id", "socio_aporta_id", "client_id", "validated_by", "exit_fund", "trade_ref", "devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); if (clean.fondo_id === "" || clean.fondo_id === "NA") clean.fondo_id = "FIC"; const { error } = await sb.from("piezas").upsert(clean); if (error) throw error; },
   async saveTx(t) { const { error } = await sb.from("transacciones").upsert(t); if (error) throw error; },
   async saveCorte(c) { const { error } = await sb.from("cortes").upsert(c); if (error) throw error; },
   async saveClient(c) { const { error } = await sb.from("clientes").upsert(c); if (error) throw error; },
@@ -1585,7 +1585,7 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
             const bd = totalIn + cashIn - cashOut - c;
             if (bd !== 0 && !confirm(`El trade está descuadrado por ${fmxn(bd)}. ¿Registrar de todos modos?`)) return;
             setSaving(true);
-            try { await onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: "trade_out", exit_fund: piece.fondo_id, ...f, _tradeIncoming: incoming, _cashOut: cashOut, _cashIn: cashIn }); } catch(e) { alert("Error: " + e.message); setSaving(false); }
+            try { await onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: "trade_out", exit_fund: piece.fondo_id, ...f, _tradeIncoming: incoming, _cashOut: cashOut, _cashIn: cashIn }); } catch(e) { alert("Error: " + e.message); } finally { setSaving(false); }
           }}>{saving ? "Guardando..." : "Registrar Trade Out"}</BtnG>
         ) : (
           <BtnG disabled={saving} onClick={async () => { if (saving) return; setSaving(true); try { await onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: f.xType, exit_fund: f.xFund, ...f }); } catch(e) { alert("Error: " + e.message); } finally { setSaving(false); } }}>{saving ? "Guardando..." : "Registrar Venta"}</BtnG>
@@ -2017,6 +2017,8 @@ export default function App() {
       const cleanP = { ...p }; delete cleanP._newCapital; delete cleanP._pendingFotos; delete cleanP.metodo_pago;
       // Trim text fields
       ["brand","model","ref","serial","name","sku","catalog_description","notes"].forEach(k => { if (typeof cleanP[k] === "string") cleanP[k] = cleanP[k].trim(); });
+      // Clean FK fields (empty string → null)
+      ["supplier_id","ref_id","socio_aporta_id","client_id","validated_by","exit_fund","trade_ref","devolucion_de"].forEach(k => { if (cleanP[k] === "" || cleanP[k] === undefined) cleanP[k] = null; });
       const payMethod = p.metodo_pago || "Efectivo MXN";
       const isNA = cleanP.fondo_id === "NA";
       const targetFund = isNA ? (activeFund === "ALL" ? "FIC" : activeFund) : cleanP.fondo_id;
@@ -2059,6 +2061,7 @@ export default function App() {
     try {
       const cleanP = { ...p }; delete cleanP._newCapital; delete cleanP._pendingFotos; delete cleanP.metodo_pago;
       ["brand","model","ref","serial","name","sku","catalog_description","notes"].forEach(k => { if (typeof cleanP[k] === "string") cleanP[k] = cleanP[k].trim(); });
+      ["supplier_id","ref_id","socio_aporta_id","client_id","validated_by","exit_fund","trade_ref","devolucion_de"].forEach(k => { if (cleanP[k] === "" || cleanP[k] === undefined) cleanP[k] = null; });
       // Track edits
       const old = data?.pieces?.find(op => op.id === cleanP.id);
       if (old) {
@@ -2208,7 +2211,12 @@ export default function App() {
         const st = txs.find(t => t.pieza_id === piece.id && t.tipo === "SELL");
         if (st) await db.saveTx({ id: uid(), fecha: td(), tipo: "DEVOLUCION", pieza_id: piece.id, monto: -(st.monto), fondo_id: st.fondo_id, descripcion: `↩ Devol venta: ${piece.name} (ref: ${st.id})`, metodo_pago: "Reversión" });
       }
-      showToast(`${piece.name} devuelto`); await refresh(); cm();
+      showToast(`${piece.name} devuelto a inventario`); 
+      await refresh();
+      // Open post-devolution action panel instead of closing
+      const updatedPiece = { ...piece, status: "Disponible", stage: "inventario", exit_type: null, exit_fund: null };
+      setSel(updatedPiece);
+      setModal("post_dev");
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, data]);
 
@@ -2592,6 +2600,43 @@ export default function App() {
       <Md open={modal === "trade"} onClose={cm} title={"Trade-out — " + (sel?.name || "")} wide>{sel && <TradeForm piece={sel} allPieces={data.pieces} onSave={hTrade} onClose={cm} />}</Md>
       <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} />}</Md>
       <Md open={modal === "rc"} onClose={cm} title="Retiro de Capital">{<RetiroCapitalForm onSave={hRetiro} onClose={cm} socios={data.socios} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} txs={data.txs} />}</Md>
+
+      {/* Post-Devolution Action Panel */}
+      <Md open={modal === "post_dev"} onClose={cm} title="Pieza Devuelta — ¿Qué hacer?">
+        {sel && (() => {
+          const freshPiece = (data?.pieces || []).find(p => p.id === sel.id) || sel;
+          return <div className="space-y-4">
+          <div className="rounded-xl p-4 text-center" style={{ background: "rgba(74,222,128,.06)", border: "1px solid rgba(74,222,128,.15)" }}>
+            <div className="text-3xl mb-2">✅</div>
+            <div className="fd text-lg font-bold text-white mb-1">{freshPiece.name}</div>
+            <div className="fb text-xs" style={{ color: "var(--cd)" }}>{freshPiece.sku} · Costo: {fmxn(freshPiece.cost)} · Ahora en inventario</div>
+          </div>
+          <div className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gd)" }}>Acciones rápidas</div>
+          <div className="grid grid-cols-2 gap-3">
+            <button onClick={() => { setSel(freshPiece); setModal("sell"); }} className="p-4 rounded-xl text-center transition-all hover:brightness-110" style={{ background: "rgba(74,222,128,.08)", border: "1.5px solid rgba(74,222,128,.15)" }}>
+              <div className="text-2xl mb-2">💵</div>
+              <div className="fb text-sm font-semibold" style={{ color: "var(--gn)" }}>Vender</div>
+              <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Registrar venta directa</div>
+            </button>
+            <button onClick={() => { setSel(freshPiece); setModal("trade"); }} className="p-4 rounded-xl text-center transition-all hover:brightness-110" style={{ background: "rgba(201,169,110,.08)", border: "1.5px solid rgba(201,169,110,.15)" }}>
+              <div className="text-2xl mb-2">🔄</div>
+              <div className="fb text-sm font-semibold" style={{ color: "var(--gd)" }}>Nuevo Trade</div>
+              <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Intercambiar por otra pieza</div>
+            </button>
+            <button onClick={() => { setSel(freshPiece); setModal("ep"); }} className="p-4 rounded-xl text-center transition-all hover:brightness-110" style={{ background: "rgba(96,165,250,.08)", border: "1.5px solid rgba(96,165,250,.15)" }}>
+              <div className="text-2xl mb-2">✏️</div>
+              <div className="fb text-sm font-semibold" style={{ color: "var(--bl)" }}>Editar Pieza</div>
+              <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Fotos, precio, catálogo</div>
+            </button>
+            <button onClick={cm} className="p-4 rounded-xl text-center transition-all hover:brightness-110" style={{ background: "rgba(255,255,255,.04)", border: "1.5px solid rgba(255,255,255,.08)" }}>
+              <div className="text-2xl mb-2">📦</div>
+              <div className="fb text-sm font-semibold text-white">Guardar</div>
+              <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Dejar en inventario</div>
+            </button>
+          </div>
+        </div>;
+        })()}
+      </Md>
       <Md open={modal === "ct"} onClose={cm} title="Nuevo Corte Mensual" wide>{<CorteForm onSave={async (c) => {
         try {
           const { _sells, ...corteData } = c;
