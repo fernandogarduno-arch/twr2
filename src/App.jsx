@@ -1177,7 +1177,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
               <div className="flex gap-2">
                 <select className="ti flex-1" value={f.supplier_id || ""} onChange={e => u("supplier_id", e.target.value)}>
                   <option value="">— Sin asignar —</option>
-                  {(suppliers || []).map(s => <option key={s.id} value={s.id}>{s.name} ({s.type || "Particular"}) {s.phone ? `· ${s.phone}` : ""}</option>)}
+                  {(suppliers || []).map(s => <option key={s.id} value={s.id}>{s.id === "TRADE" ? "🔄 " : ""}{s.name} ({s.type || "Particular"}) {s.phone ? `· ${s.phone}` : ""}</option>)}
                 </select>
                 <button type="button" onClick={() => setNewSupplier({ name: "", phone: "", email: "", ine: "", type: "Particular", notes: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>+ Nuevo</button>
               </div>
@@ -1237,7 +1237,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
           )}
 
           <div className="grid grid-cols-3 gap-3">
-            <Fl label="Motivo de Entrada" req><select className="ti" value={f.entry_type} onChange={e => u("entry_type", e.target.value)}>{ETYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Fl>
+            <Fl label="Motivo de Entrada" req><select className="ti" value={f.entry_type} onChange={e => { u("entry_type", e.target.value); if (e.target.value === "trade_in" && !f.supplier_id) u("supplier_id", "TRADE"); }}>{ETYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Fl>
             <Fl label="Fecha Entrada" req><input type="date" className="ti" value={f.entry_date} onChange={e => u("entry_date", e.target.value)} /></Fl>
             <Fl label="Método de Pago"><select className="ti" value={f.metodo_pago || "Efectivo MXN"} onChange={e => u("metodo_pago", e.target.value)}>{PAYS.filter(p => p !== "Trade" && p !== "Trade+Cash").map(p => <option key={p} value={p}>{p}</option>)}</select></Fl>
           </div>
@@ -2175,7 +2175,7 @@ export default function App() {
         // Create incoming pieces (track created for unique SKU)
         const created = [...(data.pieces || [])];
         for (const item of incoming) {
-          const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, inversionista_id: invId, entry_type: "trade_in", entry_date: p.xDate, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${p.sku || ""} (${p.name || ""} ref ${p.ref || ""})`.trim(), trade_ref: trRef };
+          const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, inversionista_id: invId, supplier_id: "TRADE", entry_type: "trade_in", entry_date: p.xDate, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${p.sku || ""} (${p.name || ""} ref ${p.ref || ""})`.trim(), trade_ref: trRef };
           created.push(np);
           await db.savePiece(np, true);
         }
@@ -2219,7 +2219,7 @@ export default function App() {
       const created = [...(data.pieces || [])];
       for (const item of incoming) {
         const outDesc = outPieces.map(op => `${op.sku || ""} (${op.name || ""} ref ${op.ref || ""})`).join(" + ");
-        const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, inversionista_id: invId, entry_type: "trade_in", entry_date: date, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${outDesc}`.trim(), trade_ref: trRef };
+        const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, inversionista_id: invId, supplier_id: "TRADE", entry_type: "trade_in", entry_date: date, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${outDesc}`.trim(), trade_ref: trRef };
         created.push(np);
         await db.savePiece(np, true);
       }
@@ -2294,8 +2294,25 @@ export default function App() {
   const hDevolucion = useCallback(async (piece) => {
     const isTr = piece.exit_type === "trade_out", tr = piece.trade_ref, txs = data?.txs || [], ap = data?.pieces || [];
     let d = `¿Devolver "${piece.name}" (${piece.sku})?\n\n`;
-    if (isTr && tr) { ap.filter(p => p.trade_ref === tr && p.entry_type === "trade_in" && p.id !== piece.id).forEach(p => { d += `• "${p.name}" → Devuelto\n`; }); const cr = txs.filter(t => t.trade_ref === tr && t.monto > 0 && t.tipo === "TRADE").reduce((s, t) => s + t.monto, 0); if (cr > 0) d += `• ${fmxn(cr)} sale del fondo\n`; }
-    else { const st = txs.find(t => t.pieza_id === piece.id && t.tipo === "SELL"); if (st) d += `• ${fmxn(st.monto)} sale del fondo\n`; }
+
+    d += `📦 PIEZAS AFECTADAS:\n`;
+    d += `  ✅ "${piece.name}" → regresa a DISPONIBLE (se rehabilita)\n`;
+    if (isTr && tr) {
+      const tradeIns = ap.filter(p => p.trade_ref === tr && p.entry_type === "trade_in" && p.id !== piece.id);
+      tradeIns.forEach(p => { d += `  ❌ "${p.name}" (${p.sku}) → se marca como DEVUELTO (sale del inventario)\n`; });
+      const cashDiff = txs.filter(t => t.trade_ref === tr && t.monto > 0 && t.tipo === "TRADE").reduce((s, t) => s + t.monto, 0);
+      const cashOut = txs.filter(t => t.trade_ref === tr && t.monto < 0 && t.tipo === "TRADE").reduce((s, t) => s + t.monto, 0);
+      d += `\n💰 EFECTO EN CASH:\n`;
+      if (cashDiff > 0) d += `  • Se reversan ${fmxn(cashDiff)} que habían entrado al fondo (diferencia a favor)\n`;
+      if (cashOut < 0) d += `  • Se reversan ${fmxn(Math.abs(cashOut))} que habían salido del fondo (diferencia en contra)\n`;
+    } else {
+      const st = txs.find(t => t.pieza_id === piece.id && t.tipo === "SELL");
+      if (st) {
+        d += `\n💰 EFECTO EN CASH:\n`;
+        d += `  • Se reversan ${fmxn(st.monto)} de la venta (sale del fondo)\n`;
+      }
+    }
+
     if (!confirm(d)) return;
     try {
       if (isTr && tr) {
@@ -2324,12 +2341,27 @@ export default function App() {
     const allRelated = [...new Map([...pieceTxs, ...tradeTxs].map(t => [t.id, t])).values()];
     const nonZero = allRelated.filter(t => t.monto !== 0 && t.tipo !== "CORRECCION");
     const netEffect = allRelated.reduce((s, t) => s + (t.monto || 0), 0);
+    const relatedPieces = piece.trade_ref ? (data?.pieces || []).filter(p => p.trade_ref === piece.trade_ref && p.id !== piece.id && p.entry_type === "trade_in") : [];
 
     let desc = `¿Corregir "${piece.name}" (${piece.sku})?\n\n`;
     desc += `Esta acción NO borra nada — marca la pieza como "Corregido" y crea transacciones inversas.\n\n`;
-    desc += `Se revertirán ${nonZero.length} transacción(es):\n`;
-    nonZero.forEach(t => { desc += `  • ${t.tipo} ${t.monto >= 0 ? "+" : ""}${fmxn(t.monto)} — ${(t.descripcion || "").slice(0, 50)}\n`; });
-    if (netEffect !== 0) desc += `\nEfecto neto en cash: ${netEffect > 0 ? "-" : "+"}${fmxn(Math.abs(netEffect))}`;
+
+    // Show piece impacts
+    desc += `📦 PIEZAS AFECTADAS:\n`;
+    desc += `  ❌ "${piece.name}" → se marca como Corregido\n`;
+    if (piece.trade_ref) {
+      const origPiece = (data?.pieces || []).find(p => p.trade_ref === piece.trade_ref && p.exit_type === "trade_out");
+      if (origPiece) desc += `  ✅ "${origPiece.name}" (${origPiece.sku}) → regresa a DISPONIBLE (se rehabilita)\n`;
+      relatedPieces.forEach(rp => {
+        if (rp.status !== "Corregido" && rp.status !== "Vendido") {
+          desc += `  ❌ "${rp.name}" (${rp.sku}) → se marca como Corregido (entró por trade)\n`;
+        }
+      });
+    }
+
+    desc += `\n💰 TRANSACCIONES QUE SE REVERSAN (${nonZero.length}):\n`;
+    nonZero.forEach(t => { desc += `  • ${t.tipo} ${t.monto >= 0 ? "+" : ""}${fmxn(t.monto)} — ${(t.descripcion || "").slice(0, 60)}\n`; });
+    if (netEffect !== 0) desc += `\n🏦 Efecto neto en cash: ${netEffect > 0 ? "-" : "+"}${fmxn(Math.abs(netEffect))}`;
 
     if (!confirm(desc)) return;
     try {
@@ -2347,8 +2379,14 @@ export default function App() {
       }
       // Mark piece as Corregido
       await db.savePiece({ id: piece.id, status: "Corregido", stage: "corregido" });
-      // If trade, also mark related trade_in pieces as Corregido
+      // If trade, also mark related trade_in pieces as Corregido AND restore the trade_out piece
       if (piece.trade_ref) {
+        // Restore the original piece that went OUT → back to Disponible
+        const origPiece = (data?.pieces || []).find(p => p.trade_ref === piece.trade_ref && p.exit_type === "trade_out");
+        if (origPiece) {
+          await db.savePiece({ id: origPiece.id, status: "Disponible", stage: "inventario", exit_type: null, exit_fund: null });
+        }
+        // Mark other trade_in pieces as Corregido
         const relatedPieces = (data?.pieces || []).filter(p => p.trade_ref === piece.trade_ref && p.id !== piece.id && p.entry_type === "trade_in");
         for (const rp of relatedPieces) {
           if (rp.status !== "Corregido" && rp.status !== "Vendido") {
