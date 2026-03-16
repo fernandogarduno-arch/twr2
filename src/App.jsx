@@ -1185,7 +1185,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
           </div>
 
           {/* Origen del recurso — v22 simplified */}
-          {!piece && f.cost > 0 && f.entry_type !== "trade_in" && (
+          {((!piece && f.cost > 0) || (piece && Number(piece.cost) === 0 && f.cost > 0)) && f.entry_type !== "trade_in" && (
           <div className="rounded-xl p-4" style={{ background: "rgba(96,165,250,.04)", border: "1px solid rgba(96,165,250,.12)" }}>
             <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--bl)" }}>↓ Origen del Recurso</div>
             <div className="grid grid-cols-2 gap-2 mb-3">
@@ -1230,7 +1230,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                 onChange={e => { const n = Number(e.target.value); sF(p => ({ ...p, cost: n, ...calcPr(n) })); }} />
             </Fl>
             {/* Live cash indicator */}
-            {f.cost > 0 && !combinedFin && f.entry_type !== "trade_in" && (
+            {f.cost > 0 && !combinedFin && f.entry_type !== "trade_in" && ((!piece) || (piece && Number(piece.cost) === 0)) && (
               <div className="mt-2 rounded-xl p-3" style={{ background: cashAfter >= 0 ? "rgba(74,222,128,.04)" : "rgba(251,113,133,.06)", border: `1px solid ${cashAfter >= 0 ? "rgba(74,222,128,.1)" : "rgba(251,113,133,.15)"}` }}>
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash actual</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>{fmxn(cashInFund)}</div></div>
@@ -1357,7 +1357,13 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
           <span className="fb text-xs" style={{ color: "var(--cd)" }}>SKU: {f.sku}</span>
         </div>
         <div className="flex gap-3">
-          <BtnP onClick={async () => { if (saving) return; setSaving(true); try { await onSave({ ...f, _newCapital: combinedFin ? newCapital : 0, _pendingFotos: localFotos.filter(ft => ft._pending) }); } catch(e) { alert("Error: " + e.message); } finally { setSaving(false); } }} disabled={saving}>{saving ? "Guardando..." : "Guardar Pieza"}</BtnP>
+          <BtnP onClick={async () => {
+            if (saving) return;
+            if (!piece && f.entry_type !== "trade_in" && (!f.cost || Number(f.cost) <= 0)) { alert("Debes poner el precio de costo antes de guardar"); return; }
+            if (!piece && !f.brand) { alert("Selecciona una marca"); return; }
+            setSaving(true);
+            try { await onSave({ ...f, _newCapital: combinedFin ? (Number(f.cost) || 0) : 0, _pendingFotos: localFotos.filter(ft => ft._pending) }); } catch(e) { alert("Error: " + e.message); } finally { setSaving(false); }
+          }} disabled={saving}>{saving ? "Guardando..." : "Guardar Pieza"}</BtnP>
           <BtnS onClick={onClose}>Cancelar</BtnS>
         </div>
       </div>
@@ -2040,7 +2046,7 @@ export default function App() {
       // Force numeric on money fields
       ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { cleanP[k] = Number(cleanP[k]) || 0; });
       const payMethod = p.metodo_pago || "Efectivo MXN";
-      const targetInv = cleanP.inversionista_id || (activeInv === "ALL" ? (investors[0]?.id || null) : activeInv);
+      const targetInv = cleanP.inversionista_id || (activeInv !== "ALL" && activeInv?.length > 10 ? activeInv : null) || user?.id;
       cleanP.inversionista_id = targetInv;
       if (!cleanP.fondo_id || cleanP.fondo_id === "NA") cleanP.fondo_id = "FIC";
 
@@ -2073,16 +2079,31 @@ export default function App() {
 
   const hUpdPc = useCallback(async (p) => {
     try {
+      const newCap = p._newCapital || 0;
       const cleanP = { ...p }; delete cleanP._newCapital; delete cleanP._pendingFotos; delete cleanP.metodo_pago;
       ["brand","model","ref","serial","name","sku","catalog_description","notes"].forEach(k => { if (typeof cleanP[k] === "string") cleanP[k] = cleanP[k].trim(); });
       ["supplier_id","ref_id","socio_aporta_id","client_id","validated_by","exit_fund","trade_ref","devolucion_de"].forEach(k => { if (cleanP[k] === "" || cleanP[k] === undefined) cleanP[k] = null; });
       ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { cleanP[k] = Number(cleanP[k]) || 0; });
+      const invId = cleanP.inversionista_id || user?.id;
+      cleanP.inversionista_id = invId;
       // Track edits
       const old = data?.pieces?.find(op => op.id === cleanP.id);
       if (old) {
         const trackFields = ["name","brand","model","ref","serial","cost","price_asked","price_dealer","price_trade","status","condition","fondo_id","notes","publish_catalog"];
         const edits = trackFields.filter(k => String(old[k] ?? "") !== String(cleanP[k] ?? "")).map(k => ({ id: crypto.randomUUID(), pieza_id: cleanP.id, campo: k, valor_antes: String(old[k] ?? ""), valor_despues: String(cleanP[k] ?? ""), editado_por: user?.email || "unknown" }));
         for (const e of edits) { try { await sb.from("pieza_edits").insert(e); } catch(ee) { console.warn("Edit track err:", ee); } }
+      }
+      // v22: If cost changed from 0 to >0, fix the BUY tx and optionally add CAPITAL
+      if (old && (Number(old.cost) || 0) === 0 && cleanP.cost > 0) {
+        const existingBuy = (data?.txs || []).find(t => t.pieza_id === cleanP.id && t.tipo === "BUY");
+        if (existingBuy && Number(existingBuy.monto) === 0) {
+          // Update BUY to reflect actual cost
+          await sb.from("transacciones").update({ monto: -(cleanP.cost), inversionista_id: invId }).eq("id", existingBuy.id);
+        }
+        // If "Nueva Aportación" selected, create CAPITAL tx
+        if (newCap > 0) {
+          await db.saveTx({ id: uid(), fecha: cleanP.entry_date || td(), tipo: "CAPITAL", monto: cleanP.cost, fondo_id: "FIC", inversionista_id: invId, descripcion: `Nueva aportación para ${cleanP.name}`, metodo_pago: p.metodo_pago || "Efectivo MXN", partner_id: user?.id });
+        }
       }
       await db.savePiece(cleanP); showToast("Pieza actualizada"); await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
@@ -2176,8 +2197,9 @@ export default function App() {
 
   const hCap = useCallback(async (amt, desc, partner, fund, fecha) => {
     try {
-      const targetFund = fund || (activeInv === "ALL" ? "FIC" : activeInv);
-      await db.saveTx({ id: uid(), fecha: fecha || td(), tipo: "CAPITAL", monto: amt, fondo_id: targetFund, inversionista_id: targetFund, descripcion: desc || "Inyección de capital", metodo_pago: "Efectivo MXN", partner_id: partner });
+      const targetFund = fund || (activeInv !== "ALL" && activeInv?.length > 10 ? activeInv : "FIC");
+      const invId = targetFund?.length > 10 ? targetFund : user?.id;
+      await db.saveTx({ id: uid(), fecha: fecha || td(), tipo: "CAPITAL", monto: amt, fondo_id: "FIC", inversionista_id: invId, descripcion: desc || "Inyección de capital", metodo_pago: "Efectivo MXN", partner_id: partner });
       showToast(`Capital registrado`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
@@ -2185,11 +2207,12 @@ export default function App() {
 
   const hRetiro = useCallback(async (amt, desc, partner, fund, motivo, fecha) => {
     try {
-      const tf = fund || (activeInv === "ALL" ? "FIC" : activeInv);
-      const fc = (data?.txs || []).reduce((s, t) => t.fondo_id === tf ? s + (t.monto || 0) : s, 0);
+      const tf = fund || (activeInv !== "ALL" && activeInv?.length > 10 ? activeInv : null);
+      const invId = tf?.length > 10 ? tf : user?.id;
+      const fc = (data?.txs || []).reduce((s, t) => (t.inversionista_id === invId || t.fondo_id === invId) ? s + (Number(t.monto) || 0) : s, 0);
       if (amt > fc && !confirm(`⚠️ Cash: ${fmxn(fc)}, retiro: ${fmxn(amt)}. ¿Continuar?`)) return;
       const lb = motivo === "venta" ? "Retiro al vender" : motivo === "total" ? "Retiro total" : "Retiro parcial";
-      await db.saveTx({ id: uid(), fecha: fecha || td(), tipo: "RETIRO_CAPITAL", monto: -(amt), fondo_id: tf, inversionista_id: tf, descripcion: desc || lb, metodo_pago: "Efectivo MXN", partner_id: partner });
+      await db.saveTx({ id: uid(), fecha: fecha || td(), tipo: "RETIRO_CAPITAL", monto: -(amt), fondo_id: "FIC", inversionista_id: invId, descripcion: desc || lb, metodo_pago: "Efectivo MXN", partner_id: partner });
       showToast(`Retiro registrado`); await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, activeInv, data]);
