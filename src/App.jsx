@@ -49,7 +49,7 @@ const db = {
   async loadAll() {
     const [pz, tx, ct, fo, cl, su, st, cr, sc, pr, cp, fn] = await Promise.all([
       sb.from("piezas").select("*").order("created_at", { ascending: false }),
-      sb.from("transacciones").select("*").order("fecha", { ascending: false }),
+      sb.from("transacciones").select("*").order("fecha", { ascending: false }).order("created_at", { ascending: false }),
       sb.from("cortes").select("*").order("periodo", { ascending: false }),
       sb.from("pieza_fotos").select("*").is("deleted_at", null),
       sb.from("clientes").select("*"),
@@ -162,6 +162,8 @@ const CONDS = ["Nuevo/Sin uso","Como nuevo","Mint","Excelente","Muy bueno","Buen
 const AUTHS = [{c:"NONE",n:"Sin autenticar",l:0},{c:"VISUAL",n:"Inspección visual",l:1},{c:"SERIAL",n:"Serial verificado",l:2},{c:"MOVEMENT",n:"Movimiento abierto",l:3},{c:"THIRD",n:"Tercero certificado",l:4},{c:"BRAND",n:"Certificado de marca",l:5}];
 const PAYS = ["Efectivo MXN","SPEI","Efectivo USD","Wire USD","Trade","Trade+Cash","Escrow","Tarjeta"];
 const ETYPES = [{v:"adquisicion",l:"Adquisición"},{v:"trade_in",l:"Trade-in"},{v:"consignacion",l:"Consignación"}];
+const txL = t => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL", DEVOLUCION: "↩ DEVOL", CORRECCION: "⊘ CORREC" }[t] || t);
+const txC = t => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue", DEVOLUCION: "gold", TRADE: "gold", CORRECCION: "default" }[t] || "gold");
 const DIAL_COLORS = ["Negro","Blanco","Azul","Verde","Gris","Plata","Champagne","Oro Rosa","Marrón","Burdeo","Rojo","Amarillo","Naranja","Madre Perla","Skeleton","Otro"];
 const BEZEL_TYPES = ["Liso","Fluted","Giratorio Uni","Giratorio Bi","Tachymeter","GMT","Diamantes","Cerámico","Count-up","Ninguno","Otro"];
 const STRAP_TYPES = ["Acero Oyster","Acero Jubilee","Acero President","Acero Integrado","Caucho","Piel Cocodrilo","Piel Becerro","NATO/Nylon","Titanio","Oro","Cerámica","Otro"];
@@ -1550,15 +1552,20 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
           </div>
 
           {/* Trade balance */}
-          <div className="rounded-xl p-3 text-center" style={{ background: balanceDiff === 0 ? "rgba(74,222,128,.08)" : "rgba(251,191,36,.08)", border: balanceDiff === 0 ? "1px solid rgba(74,222,128,.15)" : "1px solid rgba(251,191,36,.15)" }}>
+          {(() => { const netValue = totalIn + cashIn - cashOut; const isLoss = netValue < c; return <>
+          <div className="rounded-xl p-3 text-center" style={{ background: isLoss ? "rgba(251,113,133,.08)" : balanceDiff === 0 ? "rgba(74,222,128,.08)" : "rgba(251,191,36,.08)", border: isLoss ? "1px solid rgba(251,113,133,.2)" : balanceDiff === 0 ? "1px solid rgba(74,222,128,.15)" : "1px solid rgba(251,191,36,.15)" }}>
             <div className="grid grid-cols-4 gap-2">
               <div><div className="fb text-xs" style={{ color: "var(--rd)" }}>Sale</div><div className="fd font-bold text-white">{fmxn(c)}</div></div>
-              <div><div className="fb text-xs" style={{ color: "var(--gn)" }}>Piezas In</div><div className="fd font-bold text-white">{fmxn(totalIn)}</div></div>
-              <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash Neto</div><div className="fd font-bold" style={{ color: (cashIn - cashOut) >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(cashIn - cashOut)}</div></div>
-              <div><div className="fb text-xs" style={{ color: balanceDiff === 0 ? "var(--gn)" : "#FBBF24" }}>{balanceDiff === 0 ? "✓ Cuadra" : "⚠ Descuadre"}</div><div className="fd font-bold" style={{ color: balanceDiff === 0 ? "var(--gn)" : "#FBBF24" }}>{balanceDiff === 0 ? "$0" : fmxn(balanceDiff)}</div></div>
+              <div><div className="fb text-xs" style={{ color: "var(--gn)" }}>Entra</div><div className="fd font-bold text-white">{fmxn(totalIn)}</div></div>
+              <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Dif $</div><div className="fd font-bold" style={{ color: (cashIn - cashOut) >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(cashIn - cashOut)}</div></div>
+              <div><div className="fb text-xs" style={{ color: isLoss ? "var(--rd)" : "var(--gn)" }}>Neto</div><div className="fd font-bold" style={{ color: isLoss ? "var(--rd)" : "var(--gn)" }}>{isLoss ? "-" : ""}{fmxn(Math.abs(netValue - c))}</div></div>
             </div>
+            {isLoss && <div className="mt-2 p-2 rounded-lg" style={{ background: "rgba(251,113,133,.1)" }}><div className="fb text-xs font-bold" style={{ color: "var(--rd)" }}>⚠️ ATENCIÓN: Este trade genera una PÉRDIDA de {fmxn(c - netValue)}. El valor que entra ({fmxn(netValue)}) es menor al que sale ({fmxn(c)}).</div></div>}
+            {!isLoss && netValue === c && <div className="fb text-xs mt-1" style={{ color: "var(--gn)" }}>✓ Trade equilibrado</div>}
+            {!isLoss && netValue > c && <div className="fb text-xs mt-1" style={{ color: "var(--gn)" }}>✓ Trade a favor: +{fmxn(netValue - c)}</div>}
             {balanceDiff !== 0 && <div className="fb text-xs mt-2" style={{ color: "#FBBF24" }}>Piezas ({fmxn(totalIn)}) + Cash recibido ({fmxn(cashIn)}) - Cash pagado ({fmxn(cashOut)}) debe = Costo salida ({fmxn(c)})</div>}
           </div>
+          </>; })()}
         </>
       )}
 
@@ -1608,6 +1615,8 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
             const bd = totalIn + cashIn - cashOut - c;
             if (bd !== 0 && !confirm(`El trade está descuadrado por ${fmxn(bd)}. ¿Registrar de todos modos?`)) return;
             setSaving(true);
+            const netV = totalIn + cashIn - cashOut;
+            if (netV < c && !confirm(`⚠️ Este trade genera una PÉRDIDA de ${fmxn(c - netV)}.\n\nSale: ${fmxn(c)}\nEntra: ${fmxn(netV)}\nPérdida: -${fmxn(c - netV)}\n\n¿Estás seguro de continuar?`)) { setSaving(false); return; }
             try { await onSave({ ...piece, status: "Vendido", stage: "liquidado", exit_type: "trade_out", exit_fund: piece.fondo_id, ...f, _tradeIncoming: incoming, _cashOut: cashOut, _cashIn: cashIn }); } catch(e) { alert("Error: " + e.message); } finally { setSaving(false); }
           }}>{saving ? "Guardando..." : "Registrar Trade Out"}</BtnG>
         ) : (
@@ -1728,17 +1737,24 @@ function TradeForm({ piece, allPieces, onSave, onClose }) {
       <Fl label="Fecha"><input type="date" className="ti" value={date} onChange={e => setDate(e.target.value)} /></Fl>
 
       {/* Balance */}
-      <div className="rounded-xl p-4 grid grid-cols-4 gap-2 text-center" style={{ background: "rgba(201,169,110,.08)" }}>
-        <div><div className="fb text-xs" style={{ color: "var(--rd)" }}>Sale</div><div className="fd font-bold text-white">{fmxn(totalOut)}</div></div>
-        <div><div className="fb text-xs" style={{ color: "var(--gn)" }}>Entra</div><div className="fd font-bold text-white">{fmxn(totalIn)}</div></div>
-        <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Dif $</div><div className="fd font-bold" style={{ color: cashDiff >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(cashDiff)}</div></div>
-        <div><div className="fb text-xs" style={{ color: "var(--gd)" }}>Neto</div><div className="fd font-bold" style={{ color: (totalIn + cashDiff - totalOut) >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(totalIn + cashDiff - totalOut)}</div></div>
+      {(() => { const netValue = totalIn + cashIn - cashOut; const isLoss = netValue < totalOut; return <>
+      <div className="rounded-xl p-4 text-center" style={{ background: isLoss ? "rgba(251,113,133,.08)" : "rgba(201,169,110,.08)", border: isLoss ? "1px solid rgba(251,113,133,.2)" : "none" }}>
+        <div className="grid grid-cols-4 gap-2">
+          <div><div className="fb text-xs" style={{ color: "var(--rd)" }}>Sale</div><div className="fd font-bold text-white">{fmxn(totalOut)}</div></div>
+          <div><div className="fb text-xs" style={{ color: "var(--gn)" }}>Entra</div><div className="fd font-bold text-white">{fmxn(totalIn)}</div></div>
+          <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Dif $</div><div className="fd font-bold" style={{ color: cashDiff >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(cashDiff)}</div></div>
+          <div><div className="fb text-xs" style={{ color: isLoss ? "var(--rd)" : "var(--gn)" }}>Neto</div><div className="fd font-bold" style={{ color: isLoss ? "var(--rd)" : "var(--gn)" }}>{isLoss ? "-" : "+"}{fmxn(Math.abs(netValue - totalOut))}</div></div>
+        </div>
+        {isLoss && <div className="mt-3 p-2 rounded-lg" style={{ background: "rgba(251,113,133,.12)" }}><div className="fb text-xs font-bold" style={{ color: "var(--rd)" }}>⚠️ ATENCIÓN: Este trade genera una PÉRDIDA de {fmxn(totalOut - netValue)}. El valor que entra ({fmxn(netValue)}) es menor al que sale ({fmxn(totalOut)}).</div></div>}
+        {!isLoss && netValue === totalOut && <div className="fb text-xs mt-2" style={{ color: "var(--gn)" }}>✓ Trade equilibrado</div>}
+        {!isLoss && netValue > totalOut && <div className="fb text-xs mt-2" style={{ color: "var(--gn)" }}>✓ Trade a favor: +{fmxn(netValue - totalOut)}</div>}
       </div>
+      </>; })()}
 
       {/* Docs */}
       <DocUploader entityType="trade" entityId={piece.id} requiredDocs={["identificacion", "contrato"]} docs={[]} onUpload={() => {}} />
 
-      <div className="flex gap-3 pt-2"><BtnG onClick={() => onSave({ outPieces: allOut, incoming, cashDiff, cashOut, cashIn, date })} disabled={!isValid}>Registrar Trade</BtnG><BtnS onClick={onClose}>Cancelar</BtnS></div>
+      <div className="flex gap-3 pt-2"><BtnG onClick={() => { const netV = totalIn + cashIn - cashOut; if (netV < totalOut && !confirm(`⚠️ Este trade genera una PÉRDIDA de ${fmxn(totalOut - netV)}.\n\nSale: ${fmxn(totalOut)}\nEntra: ${fmxn(netV)}\nPérdida: -${fmxn(totalOut - netV)}\n\n¿Estás seguro de continuar?`)) return; onSave({ outPieces: allOut, incoming, cashDiff, cashOut, cashIn, date }); }} disabled={!isValid}>Registrar Trade</BtnG><BtnS onClick={onClose}>Cancelar</BtnS></div>
     </div>
   );
 }
@@ -1920,6 +1936,7 @@ export default function App() {
   const [side, setSide] = useState(window.innerWidth > 768);
   const [modal, setModal] = useState(null);
   const [sel, setSel] = useState(null);
+  const [editTx, setEditTx] = useState(null);
   const [q, setQ] = useState("");
   const [docs, setDocs] = useState([]);
   const [toast, setToast] = useState(null);
@@ -2224,6 +2241,16 @@ export default function App() {
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, data]);
+
+  const hUpdateTx = useCallback(async (txId, updates) => {
+    try {
+      const { error } = await sb.from("transacciones").update(updates).eq("id", txId);
+      if (error) throw error;
+      showToast("Transacción actualizada");
+      setEditTx(null);
+      await refresh();
+    } catch (e) { alert("Error: " + e.message); }
+  }, [refresh]);
 
   const hCap = useCallback(async (amt, desc, partner, fund, fecha) => {
     try {
@@ -2604,7 +2631,7 @@ export default function App() {
                       <TD><Bd text={etLabel(p.entry_type)} v={p.entry_type === "trade_in" ? "gold" : "blue"} /></TD>
                       <TD><Bd text={invInfo[p.fondo_id]?.short || p.fondo_id || "—"} v="gold" /></TD>
                       <TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD>
-                      <TD><Bd text={p.status} v={p.status === "Disponible" ? "green" : p.status === "Vendido" ? "purple" : p.status === "Devuelto" ? "red" : p.status === "Corregido" ? "default" : "default"} /></TD>
+                      <TD><Bd text={p.status === "Vendido" && p.exit_type === "trade_out" ? "Trade Out" : p.status === "Vendido" ? "Vendido ✓" : p.status} v={p.status === "Disponible" ? "green" : p.exit_type === "trade_out" ? "gold" : p.status === "Vendido" ? "purple" : p.status === "Devuelto" ? "red" : p.status === "Corregido" ? "default" : "default"} /></TD>
                       <TD>
                         <div className="flex gap-1">
                           <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--cd)" }} onClick={() => { setSel(p); setModal("ep"); }}><Ico d={IC.edit} s={14} /></button>
@@ -2628,12 +2655,10 @@ export default function App() {
         {/* ═══ TRANSACTIONS ═══ */}
         {/* ═══ ESTADO DE CUENTA ═══ */}
         {page === "transactions" && (() => {
-          const allTx = (data.txs || []).filter(t => activeInv === "ALL" || t.fondo_id === activeInv).sort((a, b) => a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0);
+          const allTx = (data.txs || []).filter(t => activeInv === "ALL" || t.inversionista_id === activeInv || t.fondo_id === activeInv).sort((a, b) => a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : (a.created_at || "") > (b.created_at || "") ? 1 : (a.created_at || "") < (b.created_at || "") ? -1 : 0);
           const allPs = (data.pieces || []).filter(p => activeInv === "ALL" || p.fondo_id === activeInv);
           const fil = allTx.filter(t => (!txFrom || t.fecha >= txFrom) && (!txTo || t.fecha <= txTo));
           const cIds = new Set(allTx.filter(t => t.tipo === "CANCEL_RETIRO" || t.tipo === "DEVOLUCION" || t.tipo === "CORRECCION").map(t => { const m = (t.descripcion || "").match(/ref: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
-          const txL = t => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL", DEVOLUCION: "↩ DEVOL", CORRECCION: "⊘ CORREC" }[t] || t);
-          const txC = t => ({ SELL: "green", BUY: "red", CAPITAL: "blue", RETIRO: "purple", RETIRO_CAPITAL: "purple", CANCEL_RETIRO: "blue", DEVOLUCION: "gold", TRADE: "gold", CORRECCION: "default" }[t] || "gold");
           const socios = data.socios || [], gc = data.costos || [];
           const gOf = pid => gc.filter(c => c.pieza_id === pid).reduce((s, c) => s + (Number(c.monto) || 0), 0);
           const bef = txFrom ? allTx.filter(t => t.fecha < txFrom) : [];
@@ -2715,9 +2740,9 @@ export default function App() {
               <div className="rounded-lg p-2" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Total</div><div className="fd font-bold" style={{ color: uP >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(uP)}</div></div>
             </div></div>}
             </Cd>
-            <Cd><div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}><span className="fb text-xs font-bold" style={{ color: "var(--cd)" }}>Detalle ({fil.length}) — más recientes primero</span></div><div className="overflow-x-auto"><table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH r>Saldo</TH><TH></TH></tr></thead>
+            <Cd><div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}><span className="fb text-xs font-bold" style={{ color: "var(--cd)" }}>Detalle ({fil.length}) — más recientes primero</span></div><div className="overflow-x-auto"><table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH r>Saldo</TH><TH>Acción</TH></tr></thead>
               <tbody>{(() => { let rn = cI; const rows = fil.map(t => { rn += (t.monto || 0); return { ...t, _saldo: rn }; }); return rows.slice().reverse().map(t => { const isR = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL"; const cx = cIds.has(t.id);
-                return <tr key={t.id} className="hover:bg-white/[.02]" style={cx ? { opacity: 0.4 } : {}}><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD><TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD><TD><Bd text={invInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD><TD r><span className="fb text-xs" style={{ color: "var(--cd)" }}>{fmxn(t._saldo)}</span></TD><TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }}>↩</button>}</TD></tr>; }); })()}</tbody>
+                return <tr key={t.id} className="hover:bg-white/[.02] cursor-pointer" style={cx ? { opacity: 0.4 } : {}} onDoubleClick={() => setEditTx(t)}><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD><TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD><TD><Bd text={invInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD><TD r><span className="fb text-xs" style={{ color: "var(--cd)" }}>{fmxn(t._saldo)}</span></TD><TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }}>↩</button>}{!cx && <button onClick={() => setEditTx(t)} className="p-1 rounded-lg hover:bg-white/5 ml-1" style={{ color: "var(--cd)" }} title="Editar transacción">✏️</button>}</TD></tr>; }); })()}</tbody>
             </table></div></Cd>
           </div>;
         })()}
@@ -2783,6 +2808,7 @@ export default function App() {
       <Md open={modal === "trade"} onClose={cm} title={"Trade-out — " + (sel?.name || "")} wide>{sel && <TradeForm piece={sel} allPieces={data.pieces} onSave={hTrade} onClose={cm} />}</Md>
       <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? "FIC" : activeInv} txs={data.txs} />}</Md>
       <Md open={modal === "rc"} onClose={cm} title="Retiro de Capital">{<RetiroCapitalForm onSave={hRetiro} onClose={cm} socios={data.socios} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? "FIC" : activeInv} txs={data.txs} />}</Md>
+      <Md open={!!editTx} onClose={() => setEditTx(null)} title={"Editar Transacción — " + (editTx?.tipo || "")}>{editTx && <TxEditForm tx={editTx} onSave={hUpdateTx} onClose={() => setEditTx(null)} />}</Md>
 
       {/* Post-Devolution Action Panel */}
       <Md open={modal === "post_dev"} onClose={cm} title="Pieza Devuelta — ¿Qué hacer?">
@@ -3051,6 +3077,29 @@ function CatalogsSection({ data, refresh, showToast, db }) {
       )}
     </div>
   );
+}
+
+/* ═══ TX EDIT FORM ═══ */
+function TxEditForm({ tx, onSave, onClose }) {
+  const [f, sF] = useState({ fecha: tx.fecha || "", descripcion: tx.descripcion || "", monto: Math.abs(Number(tx.monto) || 0) });
+  const [saving, setSaving] = useState(false);
+  const isNeg = (Number(tx.monto) || 0) < 0;
+  const tipo = tx.tipo;
+  const u = (k, v) => sF(p => ({ ...p, [k]: v }));
+  const go = async () => { if (saving) return; setSaving(true); try { const monto = isNeg ? -(Number(f.monto) || 0) : (Number(f.monto) || 0); await onSave(tx.id, { fecha: f.fecha, descripcion: f.descripcion, monto }); } catch(e) { alert("Error: " + e.message); } finally { setSaving(false); } };
+  return <div className="space-y-4">
+    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)" }}>
+      <Bd text={tipo} v={txC(tipo)} />
+      <span className="fb text-xs" style={{ color: "var(--cd)" }}>ID: {tx.id?.slice(0, 8)}...</span>
+      {tx.pieza_id && <span className="fb text-xs" style={{ color: "var(--cd)" }}>Pieza: {tx.pieza_id?.slice(0, 8)}...</span>}
+    </div>
+    <Fl label="Fecha" req><input type="date" className="ti" value={f.fecha} onChange={e => u("fecha", e.target.value)} /></Fl>
+    <Fl label="Descripción"><input className="ti" value={f.descripcion} onChange={e => u("descripcion", e.target.value)} /></Fl>
+    <Fl label={`Monto (${isNeg ? "negativo — salida" : "positivo — entrada"})`} hint={isNeg ? "Se guardará como negativo" : "Se guardará como positivo"}>
+      <input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={f.monto} onChange={e => u("monto", e.target.value)} />
+    </Fl>
+    <div className="flex gap-3"><BtnP onClick={go} disabled={saving}>{saving ? "Guardando..." : "Actualizar"}</BtnP><BtnS onClick={onClose} disabled={saving}>Cancelar</BtnS></div>
+  </div>;
 }
 
 function CapitalForm({ onSave, onClose, socios, invInfo: fi, myInvs, defaultFund, txs }) {
