@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createClient } from "@supabase/supabase-js";
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE WRIST ROOM — OPERATING SYSTEM v20 (SUPABASE + CATALOG + AI + MULTI-FUND)
+   THE WRIST ROOM — OPERATING SYSTEM v22 (SUPABASE + CATALOG + AI + MULTI-FUND)
    ═══════════════════════════════════════════════════════════════════ */
 
 const sb = createClient(
@@ -76,8 +76,8 @@ const db = {
     const { data } = await sb.from("transaccion_docs").select("*").eq("entidad_tipo", entType).eq("entidad_id", entId);
     return data || [];
   },
-  async savePiece(p) { const clean = { ...p }; ["supplier_id", "ref_id", "socio_aporta_id", "client_id", "validated_by", "exit_fund", "trade_ref", "devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { if (k in clean) clean[k] = Number(clean[k]) || 0; }); if (clean.fondo_id === "" || clean.fondo_id === "NA") clean.fondo_id = "FIC"; const { error } = await sb.from("piezas").upsert(clean); if (error) throw error; },
-  async saveTx(t) { const { error } = await sb.from("transacciones").upsert(t); if (error) throw error; },
+  async savePiece(p) { const clean = { ...p }; ["supplier_id", "ref_id", "socio_aporta_id", "client_id", "validated_by", "exit_fund", "trade_ref", "devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { if (k in clean) clean[k] = Number(clean[k]) || 0; }); if (!clean.inversionista_id && clean.fondo_id && clean.fondo_id.length > 10) clean.inversionista_id = clean.fondo_id; if (!clean.fondo_id || clean.fondo_id === "" || clean.fondo_id === "NA") clean.fondo_id = "FIC"; const { error } = await sb.from("piezas").upsert(clean); if (error) throw error; },
+  async saveTx(t) { const clean = { ...t }; if (!clean.inversionista_id && clean.fondo_id && clean.fondo_id.length > 10) clean.inversionista_id = clean.fondo_id; const { error } = await sb.from("transacciones").upsert(clean); if (error) throw error; },
   async saveCorte(c) { const { error } = await sb.from("cortes").upsert(c); if (error) throw error; },
   async saveClient(c) { const { error } = await sb.from("clientes").upsert(c); if (error) throw error; },
   async saveSupplier(s) { const { error } = await sb.from("proveedores").upsert(s); if (error) throw error; },
@@ -150,7 +150,7 @@ const BEZEL_TYPES = ["Liso","Fluted","Giratorio Uni","Giratorio Bi","Tachymeter"
 const STRAP_TYPES = ["Acero Oyster","Acero Jubilee","Acero President","Acero Integrado","Caucho","Piel Cocodrilo","Piel Becerro","NATO/Nylon","Titanio","Oro","Cerámica","Otro"];
 const CASE_SIZES = ["24","26","28","30","31","33","34","36","37","38","39","40","41","42","43","44","45","46","47","48","50"];
 const EXIT_TYPES = [{v:"venta",l:"Venta"},{v:"trade_out",l:"Trade Out"},{v:"retorno_consignacion",l:"Retorno consignación"}];
-const ROLE_OPTS = ["superuser","director","operador","inversionista"];
+const ROLE_OPTS = ["superuser","operador","inversionista","readonly"];
 const PERMS = {
   superuser:      { dash:true, inv:true, newPc:true, sell:true, tx:true, txEdit:false, cortes:true, cats:true, reports:true, cfgUsers:true, cfgSocios:true, cfgCat:true, del:true },
   director:       { dash:true, inv:true, newPc:true, sell:true, tx:true, txEdit:false, cortes:true, cats:true, reports:true, cfgUsers:false, cfgSocios:false, cfgCat:true, del:false },
@@ -162,21 +162,16 @@ const can = (role, perm) => (PERMS[role] || PERMS.pending)[perm] || false;
 const SUPPLIER_TYPES = ["Particular","Dealer","Consignación","Subasta","Trade-in"];
 const CLIENT_TIERS = ["Prospecto","Regular","VIP","Mayorista"];
 const xtLabel = v => EXIT_TYPES.find(e => e.v === v)?.l || v;
-const FUND_INFO_BASE = {
-  FIC: { short:"Fondo de Inversión", full:"Fondo de Inversión Compartida", desc:"Fondo común. Utilidades se reparten según participación de socios.", icon:"🏦" },
-  NA:  { short:"Nueva Aportación", full:"Nueva Aportación de Capital", desc:"Dinero nuevo. Se registra como capital y la pieza entra al fondo seleccionado.", icon:"💰" },
-};
-const buildFundInfo = (fondos) => {
-  const fi = { ...FUND_INFO_BASE };
-  (fondos || []).forEach(f => {
-    if (!fi[f.id]) fi[f.id] = { short: f.nombre, full: f.nombre, desc: f.descripcion || "", icon: f.tipo === "personal" ? "👤" : "🏦" };
+// v22: Investors loaded from DB profiles
+const buildInvestorInfo = (profiles) => {
+  const info = {};
+  (profiles || []).forEach(p => {
+    if (p.role === "inversionista" || p.role === "superuser") {
+      info[p.id] = { short: p.name, full: p.name, icon: p.role === "superuser" ? "👤" : "💼", color: "#C9A96E", participacion: Number(p.participacion) || 0, participacion_ops: Number(p.participacion_ops) || 0 };
+    }
   });
-  return fi;
+  return info;
 };
-// Legacy compat
-const FUND_INFO = FUND_INFO_BASE;
-const FUNDS = Object.keys(FUND_INFO);
-const FUNDS_REAL = FUNDS.filter(f => f !== "NA");
 // Socios loaded from DB (data.socios) — no more hardcoded partners
 
 const PHOTO_POSITIONS = [
@@ -261,7 +256,7 @@ const BtnG=({children,onClick,disabled})=><button type="button" onClick={onClick
 const BtnD=({children,onClick})=><button type="button" onClick={onClick} className="fb px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-900/30" style={{color:"var(--rd)"}}>{children}</button>;
 
 /* ═══ FUND SELECTOR (compact for mobile) ═══ */
-function FundSel({value,onChange,label,funds,fundInfo:fi,txs}){const flist=funds||FUNDS;const info=fi||FUND_INFO_BASE;const cashOf=fk=>(txs||[]).reduce((s,t)=>t.fondo_id===fk?s+(t.monto||0):s,0);return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{flist.map(fk=>{const f=info[fk];if(!f)return null;const s=value===fk;const cash=fk!=="NA"?cashOf(fk):null;return <button key={fk} type="button" onClick={()=>onChange(fk)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(201,169,110,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{f.icon}</span><span className="fb font-semibold text-sm text-white flex-1">{f.short}</span>{cash!==null&&<span className="fb text-xs" style={{color:cash>=0?"var(--gn)":"var(--rd)"}}>{fmxn(cash)}</span>}{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
+function InvSel({value,onChange,label,investors,txs}){const cashOf=id=>(txs||[]).reduce((s,t)=>t.inversionista_id===id?s+(t.monto||0):s,0);return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{(investors||[]).map(inv=>{const s=value===inv.id;const cash=cashOf(inv.id);return <button key={inv.id} type="button" onClick={()=>onChange(inv.id)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(201,169,110,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{inv.role==="superuser"?"👤":"💼"}</span><span className="fb font-semibold text-sm text-white flex-1">{inv.name}</span><span className="fb text-xs" style={{color:cash>=0?"var(--gn)":"var(--rd)"}}>{fmxn(cash)}</span>{inv.participacion>0&&<span className="fb text-xs px-1.5 py-0.5 rounded-full" style={{background:"rgba(201,169,110,.1)",color:"var(--gd)"}}>{inv.participacion}%</span>}{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
 
 /* ═══ PHOTO UPLOAD COMPONENT ═══ */
 /* ═══ IMAGE CROPPER ═══ */
@@ -939,7 +934,7 @@ function LoginScreen({ onLogin }) {
             <span className="block text-lg font-medium tracking-[.3em] mb-1" style={{ color: "var(--gd)" }}>THE</span>WRIST
             <span className="block text-2xl font-medium tracking-[.15em] mt-0.5" style={{ color: "var(--cd)" }}>ROOM</span>
           </div>
-          <div className="fb text-xs mt-4 tracking-widest uppercase" style={{ color: "var(--gk)" }}>Sistema de Administración v20</div>
+          <div className="fb text-xs mt-4 tracking-widest uppercase" style={{ color: "var(--gk)" }}>Sistema de Administración v22</div>
         </div>
         <div className="rounded-2xl p-6" style={{ background: "var(--n2)", border: "1px solid rgba(201,169,110,.12)", boxShadow: "0 20px 60px rgba(0,0,0,.4)" }}>
           {mode === "login" && <>
@@ -990,10 +985,10 @@ function LoginScreen({ onLogin }) {
 /* ═══════════════════════════════════════════════════════════════════
    PIECE FORM — Full form with photos, docs, custom refs
    ═══════════════════════════════════════════════════════════════════ */
-function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier, userRole, fundInfo: fi, myFunds, defaultFund, txs: txsProp }) {
-  const fundInfo = fi || FUND_INFO_BASE;
+function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier, userRole, invInfo: fi, myInvs, defaultFund, txs: txsProp, investors: investorsProp }) {
+  const invInfo = fi || {};
   const autoSku = piece?.sku || genSku(allPieces);
-  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: defaultFund || "FIC", entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "", metodo_pago: "Efectivo MXN", whatsapp_pieza: "", es_referenciada: false, referenciada_por: "", referenciada_comision: 0 };
+  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", inversionista_id: defaultFund || null, entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "", metodo_pago: "Efectivo MXN", whatsapp_pieza: "", es_referenciada: false, referenciada_por: "", referenciada_comision: 0 };
   const [f, sF] = useState(piece ? { ...blank, ...piece } : blank);
   const [localFotos, setLocalFotos] = useState(fotosProp || []);
   const [combinedFin, setCombinedFin] = useState(false);
@@ -1195,7 +1190,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
               <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--bl)" }}>↓ Origen del Recurso</span>
               <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿De dónde sale el dinero?</span>
             </div>
-            <FundSel value={f.fondo_id} onChange={v => { u("fondo_id", v); if (v === "NA") { setCombinedFin(false); setNewCapital(0); } }} funds={[...(myFunds || ["FIC"]), "NA"]} fundInfo={fundInfo} txs={txsProp} />
+            <InvSel value={f.fondo_id} onChange={v => { u("fondo_id", v); if (v === "NA") { setCombinedFin(false); setNewCapital(0); } }} funds={[...(myInvs || ["FIC"]), "NA"]} invInfo={invInfo} txs={txsProp} />
             {f.fondo_id === "NA" && f.cost > 0 && (
               <div className="mt-2 fb text-xs p-3 rounded-lg" style={{ background: "rgba(74,222,128,.06)", color: "var(--gn)" }}>
                 💰 Se registrará una inyección de capital de <strong>{fmxn(f.cost)}</strong> al Fondo de Inversión Compartida (FIC).
@@ -1212,7 +1207,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                   <div className="mt-3 space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}>
-                        <div className="fb text-xs" style={{ color: "var(--bl)" }}>Del {fundInfo[f.fondo_id]?.short || "Fondo"}</div>
+                        <div className="fb text-xs" style={{ color: "var(--bl)" }}>Del {invInfo[f.fondo_id]?.short || "Fondo"}</div>
                         <div className="fd font-bold text-lg text-white">{fmxn(fromFund)}</div>
                       </div>
                       <div className="rounded-xl p-3 text-center" style={{ background: "rgba(74,222,128,.06)" }}>
@@ -1388,8 +1383,8 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
 }
 
 /* ═══ SELL FORM ═══ */
-function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, onSaveClient, costos, fundInfo: fi, myFunds, txs: txsProp }) {
-  const fundInfo = fi || FUND_INFO_BASE;
+function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, onSaveClient, costos, invInfo: fi, myInvs, txs: txsProp }) {
+  const invInfo = fi || {};
   const [f, sF] = useState({ xPrice: piece.price_asked || 0, xDate: td(), cDate: td(), payOut: "Efectivo MXN", xType: "venta", xFund: piece.fondo_id || "FIC", client_id: "" });
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const c = piece.cost || 0;
@@ -1433,7 +1428,7 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
     <div className="space-y-4">
       <Cd className="p-4">
         <div className="fd font-semibold text-white">{piece.name}</div>
-        <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>SKU: {piece.sku} · Costo: {fmxn(c)}{totalGastos > 0 ? ` + Gastos: ${fmxn(totalGastos)} = Real: ${fmxn(costoReal)}` : ""} · {fundInfo[piece.fondo_id]?.short || piece.fondo_id}</div>
+        <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>SKU: {piece.sku} · Costo: {fmxn(c)}{totalGastos > 0 ? ` + Gastos: ${fmxn(totalGastos)} = Real: ${fmxn(costoReal)}` : ""} · {invInfo[piece.fondo_id]?.short || piece.fondo_id}</div>
       </Cd>
 
       <div className="grid grid-cols-2 gap-3">
@@ -1569,7 +1564,7 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
             <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gn)" }}>↑ Destino del Recurso</span>
             <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿A qué fondo entra el dinero?</span>
           </div>
-          <FundSel value={f.xFund} onChange={v => u("xFund", v)} funds={myFunds || ["FIC"]} fundInfo={fundInfo} txs={txsProp} />
+          <InvSel value={f.xFund} onChange={v => u("xFund", v)} funds={myInvs || ["FIC"]} invInfo={invInfo} txs={txsProp} />
         </div>
       )}
 
@@ -1923,7 +1918,7 @@ export default function App() {
   const [q, setQ] = useState("");
   const [docs, setDocs] = useState([]);
   const [toast, setToast] = useState(null);
-  const [activeFund, setActiveFund] = useState("ALL");
+  const [activeInv, setActiveInv] = useState("ALL");
   const [txFrom, setTxFrom] = useState("");
   const [txTo, setTxTo] = useState("");
   const [invSort, setInvSort] = useState({ col: "status", dir: "asc" });
@@ -1955,22 +1950,26 @@ export default function App() {
 
   const cm = useCallback(() => { setModal(null); setSel(null); setDocs([]); }, []);
 
-  // User profile and fund access
+  // v22: Investor model — profiles as bolsas
   const myProfile = useMemo(() => data ? (data.profiles || []).find(p => p.id === user?.id) : null, [data, user]);
-  const fundInfo = useMemo(() => data ? buildFundInfo(data.fondos) : FUND_INFO_BASE, [data]);
-  const myFunds = useMemo(() => {
-    if (!myProfile || !data) return ["FIC"];
-    if (myProfile.role === "superuser") return (data.fondos || []).map(f => f.id);
-    const personal = myProfile.fondo_personal;
-    return personal ? [personal, "FIC"] : ["FIC"];
-  }, [myProfile, data]);
+  const investors = useMemo(() => data ? (data.profiles || []).filter(p => p.role === "inversionista" || p.role === "superuser") : [], [data]);
+  const invInfo = useMemo(() => {
+    const info = {};
+    investors.forEach(p => { info[p.id] = { short: p.name, full: p.name, icon: p.role === "superuser" ? "👤" : "💼", color: "#C9A96E", participacion: Number(p.participacion) || 0, participacion_ops: Number(p.participacion_ops) || 0 }; });
+    return info;
+  }, [investors]);
+  const myInvs = useMemo(() => {
+    if (!myProfile || !data) return [];
+    if (myProfile.role === "superuser") return investors.map(i => i.id);
+    if (myProfile.role === "operador") return investors.map(i => i.id);
+    return [myProfile.id]; // inversionista only sees own
+  }, [myProfile, data, investors]);
 
-  // Set default active fund for directors on first load
+  // Set default active investor
   useEffect(() => {
-    if (myProfile && activeFund === "ALL") {
-      if (myProfile.role === "superuser") setActiveFund("ALL");
-      else if (myProfile.fondo_personal) setActiveFund(myProfile.fondo_personal);
-      else setActiveFund("FIC");
+    if (myProfile && activeInv === "ALL") {
+      if (myProfile.role === "superuser" || myProfile.role === "operador") setActiveInv("ALL");
+      else setActiveInv(myProfile.id); // inversionista sees own
     }
   }, [myProfile]);
 
@@ -1978,62 +1977,54 @@ export default function App() {
     if (!data) return {};
     const ps = data.pieces || [];
     const txs = data.txs || [];
-    const af = activeFund; // "ALL", "FIC", "FP-JP", etc.
+    const af = activeInv;
 
-    // Filter by active fund
-    const fPs = af === "ALL" ? ps : ps.filter(p => p.fondo_id === af);
-    const fTxs = af === "ALL" ? txs : txs.filter(t => t.fondo_id === af);
+    // v22: Filter by inversionista_id
+    const fPs = af === "ALL" ? ps : ps.filter(p => p.inversionista_id === af);
+    const fTxs = af === "ALL" ? txs : txs.filter(t => t.inversionista_id === af);
 
     const inv = fPs.filter(p => p.status === "Disponible");
     const sold = fPs.filter(p => p.status === "Vendido" || p.status === "Liquidado");
-    const invC = inv.reduce((s, p) => s + (p.cost || 0), 0);
+    const invC = inv.reduce((s, p) => s + (Number(p.cost) || 0), 0);
+    let cash = fTxs.reduce((s, t) => s + (Number(t.monto) || 0), 0);
 
-    // Cash = sum of all transactions for the active fund(s)
-    let cash = 0;
-    if (af === "ALL") {
-      txs.forEach(t => { cash += (t.monto || 0); });
-    } else {
-      fTxs.forEach(t => { cash += (t.monto || 0); });
-    }
-
-    // Helper: gastos totales por pieza
     const allCostos = data.costos || [];
     const gastosOf = (pid) => allCostos.filter(c => c.pieza_id === pid).reduce((s, c) => s + (Number(c.monto) || 0), 0);
 
-    // Realized profit = SELL - cost - gastos (only direct sales)
     const rp = sold.reduce((s, p) => {
       const sellTx = fTxs.find(t => t.pieza_id === p.id && t.tipo === "SELL");
       if (!sellTx) return s;
-      return s + ((sellTx.monto || 0) - (p.cost || 0) - gastosOf(p.id));
+      return s + ((sellTx.monto || 0) - (Number(p.cost) || 0) - gastosOf(p.id));
     }, 0);
 
     const cap = fTxs.filter(t => t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
     const retCapital = Math.abs(fTxs.filter(t => t.tipo === "RETIRO_CAPITAL").reduce((s, t) => s + (t.monto || 0), 0));
-    const retUtilidades = Math.abs(fTxs.filter(t => t.tipo === "RETIRO").reduce((s, t) => s + (t.monto || 0), 0));
-    const cancelRetiros = fTxs.filter(t => t.tipo === "CANCEL_RETIRO").reduce((s, t) => s + (t.monto || 0), 0);
-    const distributions = retCapital + retUtilidades - cancelRetiros;
-    const capNeto = cap - retCapital; // Lo que "pusieron" neto de retiros de capital
-    const socios = data.socios || [];
+    const distributions = retCapital;
+    const capNeto = cap - retCapital;
 
-    // For personal funds, splits don't apply — owner gets 100%
-    const currentFondo = (data.fondos || []).find(f => f.id === af);
-    const isPersonal = currentFondo?.tipo === "personal";
+    // v22: Splits from investor profile, not socios table
+    const activeProfile = af !== "ALL" ? (data.profiles || []).find(p => p.id === af) : null;
+    const invPart = activeProfile ? Number(activeProfile.participacion) || 0 : 0;
+    const opsPart = activeProfile ? Number(activeProfile.participacion_ops) || 0 : 0;
 
     return {
-      inv, sold, invC, cash, rp, cap, capNeto, retCapital, distributions, gastosOf, isPersonal, activeFundName: fundInfo[af]?.short || af,
+      inv, sold, invC, cash, rp, cap, capNeto, retCapital, distributions, gastosOf,
+      activeInvName: invInfo[af]?.short || "Todos",
       nav: cash + invC,
       moic: cap > 0 ? (cash + invC + distributions) / cap : 0,
-      socios,
-      splits: isPersonal ? [{ id: "owner", name: currentFondo?.nombre || "Propietario", participacion: 100, color: "#C9A96E", share: rp }]
-        : socios.map(s => ({ ...s, share: Math.round(rp * (Number(s.participacion) / 100)) })),
+      invPart, opsPart,
+      splits: af === "ALL" ? [] : [
+        { id: "inv", name: activeProfile?.name || "Inversionista", participacion: invPart, color: "#4ADE80", share: Math.round(rp * invPart / 100) },
+        { id: "ops", name: "Operadores TWR", participacion: opsPart, color: "#C9A96E", share: Math.round(rp * opsPart / 100) },
+      ],
     };
-  }, [data, activeFund, fundInfo]);
+  }, [data, activeInv, invInfo]);
 
   const fp = useMemo(() => {
     if (!data) return [];
     const s = q.toLowerCase();
     const filtered = (data.pieces || []).filter(p => {
-      if (activeFund !== "ALL" && p.fondo_id !== activeFund) return false;
+      if (activeInv !== "ALL" && p.inversionista_id !== activeInv) return false;
       return !s || (p.name || "").toLowerCase().includes(s) || (p.brand || "").toLowerCase().includes(s) || (p.sku || "").toLowerCase().includes(s) || (p.ref || "").toLowerCase().includes(s);
     });
     const statusOrder = { "Disponible": 0, "Vendido": 1, "Devuelto": 2, "Corregido": 3 };
@@ -2051,7 +2042,7 @@ export default function App() {
       if (va > vb) return invSort.dir === "asc" ? 1 : -1;
       return 0;
     });
-  }, [data, q, activeFund, invSort]);
+  }, [data, q, activeInv, invSort]);
 
   /* ═══ HANDLERS ═══ */
   const hAddPc = useCallback(async (p) => {
@@ -2067,14 +2058,14 @@ export default function App() {
       ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { cleanP[k] = Number(cleanP[k]) || 0; });
       const payMethod = p.metodo_pago || "Efectivo MXN";
       const isNA = cleanP.fondo_id === "NA";
-      const targetFund = isNA ? (activeFund === "ALL" ? "FIC" : activeFund) : cleanP.fondo_id;
+      const targetFund = isNA ? (activeInv === "ALL" ? "FIC" : activeInv) : cleanP.fondo_id;
 
       // Cash validation (warning, not blocking)
       if (!isNA && cleanP.entry_type !== "trade_in" && cleanP.cost > 0) {
         const txs = data?.txs || [];
         const currentCash = txs.reduce((s, t) => t.fondo_id === targetFund ? s + (t.monto || 0) : s, 0);
         const availCash = currentCash + newCap;
-        const fundName = fundInfo[targetFund]?.short || targetFund;
+        const fundName = invInfo[targetFund]?.short || targetFund;
         if (cleanP.cost > availCash && !confirm(`⚠️ ${fundName} tiene ${fmxn(availCash)} pero la pieza cuesta ${fmxn(cleanP.cost)}.\n\nEsto dejará el cash en negativo (${fmxn(availCash - cleanP.cost)}).\n\n¿Continuar de todos modos?`)) return;
       }
 
@@ -2161,7 +2152,7 @@ export default function App() {
       const costoReal = cost + gastosPieza;
       const profit = p.xPrice - costoReal;
       await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: p.xType, exit_fund: p.xFund, client_id: p.client_id || null });
-      await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, descripcion: `Venta ${p.name} → ${fundInfo[p.xFund]?.short} (Costo: ${fmxn(cost)}${gastosPieza > 0 ? ` + Gastos: ${fmxn(gastosPieza)}` : ""}, Utilidad Real: ${fmxn(profit)})`, metodo_pago: p.payOut });
+      await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, descripcion: `Venta ${p.name} → ${invInfo[p.xFund]?.short} (Costo: ${fmxn(cost)}${gastosPieza > 0 ? ` + Gastos: ${fmxn(gastosPieza)}` : ""}, Utilidad Real: ${fmxn(profit)})`, metodo_pago: p.payOut });
       showToast(`Venta registrada: ${p.name} — Utilidad Real: ${fmxn(profit)}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
@@ -2206,23 +2197,23 @@ export default function App() {
 
   const hCap = useCallback(async (amt, desc, partner, fund) => {
     try {
-      const targetFund = fund || (activeFund === "ALL" ? "FIC" : activeFund);
+      const targetFund = fund || (activeInv === "ALL" ? "FIC" : activeInv);
       await db.saveTx({ id: uid(), fecha: td(), tipo: "CAPITAL", monto: amt, fondo_id: targetFund, descripcion: desc || "Inyección de capital", metodo_pago: "Efectivo MXN", partner_id: partner });
-      showToast(`Capital registrado en ${fundInfo[targetFund]?.short || targetFund}`);
+      showToast(`Capital registrado en ${invInfo[targetFund]?.short || targetFund}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
-  }, [refresh, cm, activeFund, fundInfo]);
+  }, [refresh, cm, activeInv, invInfo]);
 
   const hRetiro = useCallback(async (amt, desc, partner, fund, motivo) => {
     try {
-      const tf = fund || (activeFund === "ALL" ? "FIC" : activeFund);
+      const tf = fund || (activeInv === "ALL" ? "FIC" : activeInv);
       const fc = (data?.txs || []).reduce((s, t) => t.fondo_id === tf ? s + (t.monto || 0) : s, 0);
       if (amt > fc && !confirm(`⚠️ Cash: ${fmxn(fc)}, retiro: ${fmxn(amt)}. ¿Continuar?`)) return;
       const lb = motivo === "venta" ? "Retiro al vender" : motivo === "total" ? "Retiro total" : "Retiro parcial";
       await db.saveTx({ id: uid(), fecha: td(), tipo: "RETIRO_CAPITAL", monto: -(amt), fondo_id: tf, descripcion: desc || lb, metodo_pago: "Efectivo MXN", partner_id: partner });
       showToast(`Retiro registrado`); await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
-  }, [refresh, cm, activeFund, data]);
+  }, [refresh, cm, activeInv, data]);
 
   const hCancelRetiro = useCallback(async (tx) => {
     if (!confirm(`¿Cancelar retiro?\n${tx.descripcion}\n${fmxn(Math.abs(tx.monto))}`)) return;
@@ -2363,7 +2354,7 @@ export default function App() {
             <button onClick={() => setSide(!side)} className="flex-1 text-center py-1.5 rounded-lg text-xs hover:bg-white/5" style={{ color: "var(--cd)" }}>{side ? "◂" : "▸"}</button>
             {side && <button onClick={logout} className="flex-1 py-1.5 rounded-lg text-xs hover:bg-white/5" style={{ color: "var(--rd)" }}>Salir</button>}
           </div>
-          {side && <div className="fb text-center text-xs mt-1" style={{ color: "rgba(245,240,232,.2)" }}>TWR OS v20</div>}
+          {side && <div className="fb text-center text-xs mt-1" style={{ color: "rgba(245,240,232,.2)" }}>TWR OS v22</div>}
         </div>
       </aside>
 
@@ -2381,18 +2372,18 @@ export default function App() {
             </div>
 
             {/* Fund Tabs */}
-            {myFunds.length > 1 && (
+            {myInvs.length > 1 && (
               <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: "rgba(255,255,255,.03)" }}>
                 {myProfile?.role === "superuser" && (
-                  <button onClick={() => setActiveFund("ALL")} className="fb text-xs font-semibold px-4 py-2 rounded-lg transition-all whitespace-nowrap"
-                    style={activeFund === "ALL" ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
-                    📊 Todos los Fondos
+                  <button onClick={() => setActiveInv("ALL")} className="fb text-xs font-semibold px-4 py-2 rounded-lg transition-all whitespace-nowrap"
+                    style={activeInv === "ALL" ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
+                    📊 Todos
                   </button>
                 )}
-                {myFunds.map(fk => (
-                  <button key={fk} onClick={() => setActiveFund(fk)} className="fb text-xs font-semibold px-4 py-2 rounded-lg transition-all whitespace-nowrap"
-                    style={activeFund === fk ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
-                    {fundInfo[fk]?.icon || "🏦"} {fundInfo[fk]?.short || fk}
+                {myInvs.map(fk => (
+                  <button key={fk} onClick={() => setActiveInv(fk)} className="fb text-xs font-semibold px-4 py-2 rounded-lg transition-all whitespace-nowrap"
+                    style={activeInv === fk ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
+                    {invInfo[fk]?.icon || "🏦"} {invInfo[fk]?.short || fk}
                   </button>
                 ))}
               </div>
@@ -2531,7 +2522,7 @@ export default function App() {
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full"><thead><tr><TH>Pieza</TH><TH>Origen</TH><TH r>Costo</TH><TH r>Lista</TH><TH>Status</TH></tr></thead>
-                  <tbody>{(comp.inv || []).slice(0, 10).map(p => <tr key={p.id} className="hover:bg-white/[.02] cursor-pointer" onClick={() => { setSel(p); setModal("ep"); }}><TD b>{p.name}</TD><TD><Bd text={fundInfo[p.fondo_id]?.short || p.fondo_id} v="gold" /></TD><TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD><TD><Bd text={p.status} v="green" /></TD></tr>)}</tbody>
+                  <tbody>{(comp.inv || []).slice(0, 10).map(p => <tr key={p.id} className="hover:bg-white/[.02] cursor-pointer" onClick={() => { setSel(p); setModal("ep"); }}><TD b>{p.name}</TD><TD><Bd text={invInfo[p.fondo_id]?.short || p.fondo_id} v="gold" /></TD><TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD><TD><Bd text={p.status} v="green" /></TD></tr>)}</tbody>
                 </table>
               </div>
             </Cd>
@@ -2545,11 +2536,11 @@ export default function App() {
               <h1 className="fd text-2xl md:text-3xl font-bold text-white">Inventario</h1>
               <BtnP onClick={() => setModal("ap")}><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Nueva Pieza</span></BtnP>
             </div>
-            {/* Fund tabs */}
-            {myFunds.length > 1 && (
+            {/* Investor tabs */}
+            {myInvs.length > 1 && (
               <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: "rgba(255,255,255,.03)" }}>
-                {myProfile?.role === "superuser" && <button onClick={() => setActiveFund("ALL")} className="fb text-xs font-semibold px-3 py-2 rounded-lg" style={activeFund === "ALL" ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>Todos</button>}
-                {myFunds.map(fk => <button key={fk} onClick={() => setActiveFund(fk)} className="fb text-xs font-semibold px-3 py-2 rounded-lg whitespace-nowrap" style={activeFund === fk ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>{fundInfo[fk]?.icon} {fundInfo[fk]?.short || fk}</button>)}
+                {myProfile?.role === "superuser" && <button onClick={() => setActiveInv("ALL")} className="fb text-xs font-semibold px-3 py-2 rounded-lg" style={activeInv === "ALL" ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>Todos</button>}
+                {myInvs.map(fk => <button key={fk} onClick={() => setActiveInv(fk)} className="fb text-xs font-semibold px-3 py-2 rounded-lg whitespace-nowrap" style={activeInv === fk ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>{invInfo[fk]?.icon} {invInfo[fk]?.short || fk}</button>)}
               </div>
             )}
             <div className="relative"><div className="absolute left-3 top-3" style={{ color: "var(--cd)" }}><Ico d={IC.srch} s={16} /></div><input className="ti" style={{ paddingLeft: 36 }} placeholder="Buscar..." value={q} onChange={e => setQ(e.target.value)} /></div>
@@ -2579,7 +2570,7 @@ export default function App() {
                       <TD><span className="font-mono text-xs" style={{ color: "var(--cd)" }}>{p.sku || "—"}</span></TD>
                       <TD b>{p.name} {p.publish_catalog && <span title="En catálogo público" style={{ color: "var(--gn)" }}>●</span>}</TD>
                       <TD><Bd text={etLabel(p.entry_type)} v={p.entry_type === "trade_in" ? "gold" : "blue"} /></TD>
-                      <TD><Bd text={fundInfo[p.fondo_id]?.short || p.fondo_id || "—"} v="gold" /></TD>
+                      <TD><Bd text={invInfo[p.fondo_id]?.short || p.fondo_id || "—"} v="gold" /></TD>
                       <TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD>
                       <TD><Bd text={p.status} v={p.status === "Disponible" ? "green" : p.status === "Vendido" ? "purple" : p.status === "Devuelto" ? "red" : p.status === "Corregido" ? "default" : "default"} /></TD>
                       <TD>
@@ -2591,6 +2582,7 @@ export default function App() {
                           </>}
                           {p.status === "Vendido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }} onClick={() => hDevolucion(p)} title="Devolver">↩</button>}
                           {p.status !== "Corregido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#F59E0B" }} onClick={() => hCorregir(p)} title="Corregir entrada">⊘</button>}
+                          {p.status === "Disponible" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#25D366" }} onClick={() => { const msg = encodeURIComponent(`Hola! Te comparto esta pieza disponible:\n\n*${p.brand} ${p.model}*\nRef: ${p.ref || "N/A"}\nPrecio: ${fmxn(p.price_asked)}\n\nThe Wrist Room — Mérida, Yucatán\nhttps://twr2.vercel.app/catalog`); window.open(`https://wa.me/?text=${msg}`, "_blank"); }} title="Compartir WhatsApp">📱</button>}
                         </div>
                       </TD>
                     </tr>
@@ -2604,8 +2596,8 @@ export default function App() {
         {/* ═══ TRANSACTIONS ═══ */}
         {/* ═══ ESTADO DE CUENTA ═══ */}
         {page === "transactions" && (() => {
-          const allTx = (data.txs || []).filter(t => activeFund === "ALL" || t.fondo_id === activeFund).sort((a, b) => a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0);
-          const allPs = (data.pieces || []).filter(p => activeFund === "ALL" || p.fondo_id === activeFund);
+          const allTx = (data.txs || []).filter(t => activeInv === "ALL" || t.fondo_id === activeInv).sort((a, b) => a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0);
+          const allPs = (data.pieces || []).filter(p => activeInv === "ALL" || p.fondo_id === activeInv);
           const fil = allTx.filter(t => (!txFrom || t.fecha >= txFrom) && (!txTo || t.fecha <= txTo));
           const cIds = new Set(allTx.filter(t => t.tipo === "CANCEL_RETIRO" || t.tipo === "DEVOLUCION" || t.tipo === "CORRECCION").map(t => { const m = (t.descripcion || "").match(/ref: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
           const txL = t => ({ RETIRO: "RETIRO", RETIRO_CAPITAL: "RET.CAP", CANCEL_RETIRO: "↩ CANCEL", DEVOLUCION: "↩ DEVOL", CORRECCION: "⊘ CORREC" }[t] || t);
@@ -2653,7 +2645,7 @@ export default function App() {
           const sP = fil.filter(t => t.tipo === "SELL");
           const uP = sP.reduce((s, t) => { const p = allPs.find(pc => pc.id === t.pieza_id); return p ? s + (t.monto - (Number(p.cost) || 0) - gOf(t.pieza_id)) : s; }, 0);
           const exportPDF = () => {
-            const fl = activeFund === "ALL" ? "Todos" : (fundInfo[activeFund]?.short || activeFund), pl = txFrom && txTo ? `${txFrom} al ${txTo}` : "Histórico";
+            const fl = activeInv === "ALL" ? "Todos" : (invInfo[activeInv]?.short || activeInv), pl = txFrom && txTo ? `${txFrom} al ${txTo}` : "Histórico";
             let h = `<html><head><meta charset="UTF-8"><title>TWR Reporte</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;padding:40px;color:#1a1a2e;font-size:11px}h1{font-size:22px}h2{font-size:13px;color:#666;margin-bottom:20px}.hd{display:flex;justify-content:space-between;margin-bottom:25px;padding-bottom:12px;border-bottom:2px solid #C9A96E}.bl{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px}.bl>div{padding:10px;border-radius:8px;text-align:center;background:#f8f9fa;border:1px solid #e9ecef}.lb{font-size:9px;color:#666;text-transform:uppercase}.vl{font-size:15px;font-weight:700}.sc{margin:15px 0 8px;font-size:11px;font-weight:700;color:#C9A96E;text-transform:uppercase}table{width:100%;border-collapse:collapse}th{text-align:left;padding:6px;border-bottom:2px solid #C9A96E;font-size:9px;text-transform:uppercase;color:#666}td{padding:5px 6px;border-bottom:1px solid #eee;font-size:10px}.r{text-align:right}.b{font-weight:600}.cx{opacity:.4;text-decoration:line-through}.gn{color:#16a34a}.rd{color:#dc2626}.ft{margin-top:25px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}</style></head><body>`;
             h += `<div class="hd"><div><h1>The Wrist Room</h1><h2>Reporte — ${fl}</h2><div>${pl}</div></div><div style="text-align:right;font-size:10px;color:#666">${new Date().toLocaleString("es-MX")}</div></div>`;
             if (txFrom) h += `<div class="sc">Inicio</div><div class="bl"><div><div class="lb">Cash</div><div class="vl">${fmxn(cI)}</div></div><div><div class="lb">Inventario</div><div class="vl">${fmxn(iBC)} (${iB.length})</div></div><div><div class="lb">NAV</div><div class="vl">${fmxn(cI+iBC)}</div></div></div>`;
@@ -2693,7 +2685,7 @@ export default function App() {
             </Cd>
             <Cd><div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}><span className="fb text-xs font-bold" style={{ color: "var(--cd)" }}>Detalle ({fil.length}) — más recientes primero</span></div><div className="overflow-x-auto"><table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH r>Saldo</TH><TH></TH></tr></thead>
               <tbody>{(() => { let rn = cI; const rows = fil.map(t => { rn += (t.monto || 0); return { ...t, _saldo: rn }; }); return rows.slice().reverse().map(t => { const isR = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL"; const cx = cIds.has(t.id);
-                return <tr key={t.id} className="hover:bg-white/[.02]" style={cx ? { opacity: 0.4 } : {}}><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD><TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD><TD><Bd text={fundInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD><TD r><span className="fb text-xs" style={{ color: "var(--cd)" }}>{fmxn(t._saldo)}</span></TD><TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }}>↩</button>}</TD></tr>; }); })()}</tbody>
+                return <tr key={t.id} className="hover:bg-white/[.02]" style={cx ? { opacity: 0.4 } : {}}><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD><TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD><TD><Bd text={invInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD><TD r><span className="fb text-xs" style={{ color: "var(--cd)" }}>{fmxn(t._saldo)}</span></TD><TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }}>↩</button>}</TD></tr>; }); })()}</tbody>
             </table></div></Cd>
           </div>;
         })()}
@@ -2753,12 +2745,12 @@ export default function App() {
       {toast && <div className="fixed bottom-4 right-4 z-50 fb text-sm px-4 py-3 rounded-xl shadow-lg au" style={{ background: toast.type === "ok" ? "#166534" : "rgba(251,113,133,.2)", color: toast.type === "ok" ? "var(--gn)" : "var(--rd)" }}>{toast.msg}</div>}
 
       {/* MODALS */}
-      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} txs={data.txs} /></Md>
-      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} txs={data.txs} />}</Md>
-      <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} clients={data.clients} onSaveClient={async (c) => { await db.saveClient(c); await refresh(); }} costos={data.costos} fundInfo={fundInfo} myFunds={myFunds} txs={data.txs} />}</Md>
+      <Md open={modal === "ap"} onClose={cm} title="Nueva Pieza — Entrada" wide><PcForm onSave={hAddPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? "FIC" : activeInv} txs={data.txs} investors={investors} /></Md>
+      <Md open={modal === "ep"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={hUpdPc} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? (investors[0]?.id || null) : activeInv} txs={data.txs} investors={investors} />}</Md>
+      <Md open={modal === "sell"} onClose={cm} title={"Salida — " + (sel?.name || "")} wide>{sel && <SellForm piece={sel} onSave={hSell} onClose={cm} docs={docs} socios={data.socios} allPieces={data.pieces} clients={data.clients} onSaveClient={async (c) => { await db.saveClient(c); await refresh(); }} costos={data.costos} invInfo={invInfo} myInvs={myInvs} txs={data.txs} />}</Md>
       <Md open={modal === "trade"} onClose={cm} title={"Trade-out — " + (sel?.name || "")} wide>{sel && <TradeForm piece={sel} allPieces={data.pieces} onSave={hTrade} onClose={cm} />}</Md>
-      <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} txs={data.txs} />}</Md>
-      <Md open={modal === "rc"} onClose={cm} title="Retiro de Capital">{<RetiroCapitalForm onSave={hRetiro} onClose={cm} socios={data.socios} fundInfo={fundInfo} myFunds={myFunds} defaultFund={activeFund === "ALL" ? "FIC" : activeFund} txs={data.txs} />}</Md>
+      <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? "FIC" : activeInv} txs={data.txs} />}</Md>
+      <Md open={modal === "rc"} onClose={cm} title="Retiro de Capital">{<RetiroCapitalForm onSave={hRetiro} onClose={cm} socios={data.socios} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? "FIC" : activeInv} txs={data.txs} />}</Md>
 
       {/* Post-Devolution Action Panel */}
       <Md open={modal === "post_dev"} onClose={cm} title="Pieza Devuelta — ¿Qué hacer?">
@@ -3029,10 +3021,10 @@ function CatalogsSection({ data, refresh, showToast, db }) {
   );
 }
 
-function CapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, defaultFund, txs }) {
+function CapitalForm({ onSave, onClose, socios, invInfo: fi, myInvs, defaultFund, txs }) {
   const sl = socios || [];
-  const funds = myFunds || ["FIC"];
-  const info = fi || FUND_INFO_BASE;
+  const funds = myInvs || ["FIC"];
+  const info = fi || {};
   const [amt, setAmt] = useState(""); const [desc, setDesc] = useState(""); const [partner, setPartner] = useState(sl[0]?.id || "");
   const [fund, setFund] = useState(defaultFund || funds[0] || "FIC");
   const [saving, setSaving] = useState(false);
@@ -3042,7 +3034,7 @@ function CapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, defaultFu
     try { await onSave(Number(amt), desc, partner, fund); } catch(e) { alert("Error: " + e.message); setSaving(false); }
   };
   return <div className="space-y-4">
-    {funds.length > 1 && <FundSel value={fund} onChange={setFund} label="¿A qué fondo?" funds={funds} fundInfo={info} txs={txs} />}
+    {funds.length > 1 && <InvSel value={fund} onChange={setFund} label="¿A qué fondo?" funds={funds} invInfo={info} txs={txs} />}
     {funds.length === 1 && <div className="fb text-xs p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)", color: "var(--gd)" }}>{info[funds[0]]?.icon} Fondo: {info[funds[0]]?.short}</div>}
     <Fl label="¿Quién inyecta?" req><div className="space-y-2">{sl.map(s => <button key={s.id} type="button" onClick={() => setPartner(s.id)} className="w-full flex items-center gap-3 p-3 rounded-xl" style={{ background: partner === s.id ? "rgba(201,169,110,.1)" : "rgba(255,255,255,.02)", border: partner === s.id ? "1.5px solid var(--gd)" : "1.5px solid rgba(255,255,255,.06)" }}><div className="w-8 h-8 rounded-lg flex items-center justify-center fb text-xs font-bold" style={{ background: `${s.color}20`, color: s.color }}>{s.participacion}%</div><div className="text-left"><div className="fb text-sm font-semibold text-white">{s.name}</div></div>{partner === s.id && <div className="ml-auto" style={{ color: "var(--gd)" }}>✓</div>}</button>)}</div></Fl>
     <Fl label="Monto (MXN)" req><input type="number" className="ti" value={amt} onChange={e => setAmt(e.target.value)} /></Fl>
@@ -3051,15 +3043,15 @@ function CapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, defaultFu
   </div>;
 }
 
-function RetiroCapitalForm({ onSave, onClose, socios, fundInfo: fi, myFunds, defaultFund, txs }) {
-  const sl = socios || [], funds = myFunds || ["FIC"], info = fi || FUND_INFO_BASE;
+function RetiroCapitalForm({ onSave, onClose, socios, invInfo: fi, myInvs, defaultFund, txs }) {
+  const sl = socios || [], funds = myInvs || ["FIC"], info = fi || {};
   const [amt, setAmt] = useState(""), [desc, setDesc] = useState(""), [partner, setPartner] = useState(sl[0]?.id || "");
   const [fund, setFund] = useState(defaultFund || funds[0] || "FIC"), [motivo, setMotivo] = useState("parcial"), [saving, setSaving] = useState(false);
   const cash = (txs || []).reduce((s, t) => t.fondo_id === fund ? s + (t.monto || 0) : s, 0);
   const cap = (txs || []).filter(t => t.fondo_id === fund && t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
   const go = async () => { if (!amt || saving || Number(amt) <= 0) return; setSaving(true); try { await onSave(Number(amt), desc, partner, fund, motivo); } catch(e) { alert(e.message); setSaving(false); } };
   return <div className="space-y-4">
-    {funds.length > 1 && <FundSel value={fund} onChange={setFund} label="¿De qué fondo?" funds={funds} fundInfo={info} txs={txs} />}
+    {funds.length > 1 && <InvSel value={fund} onChange={setFund} label="¿De qué fondo?" funds={funds} invInfo={info} txs={txs} />}
     <div className="grid grid-cols-2 gap-3">
       <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash</div><div className="fd font-bold text-lg text-white">{fmxn(cash)}</div></div>
       <div className="rounded-xl p-3 text-center" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Capital</div><div className="fd font-bold text-lg text-white">{fmxn(cap)}</div></div>
