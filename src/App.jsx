@@ -76,8 +76,8 @@ const db = {
     const { data } = await sb.from("transaccion_docs").select("*").eq("entidad_tipo", entType).eq("entidad_id", entId);
     return data || [];
   },
-  async savePiece(p) { const clean = { ...p }; ["supplier_id", "ref_id", "socio_aporta_id", "client_id", "validated_by", "exit_fund", "trade_ref", "devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { if (k in clean) clean[k] = Number(clean[k]) || 0; }); if (!clean.inversionista_id && clean.fondo_id && clean.fondo_id.length > 10) clean.inversionista_id = clean.fondo_id; if (!clean.fondo_id || clean.fondo_id === "" || clean.fondo_id === "NA") clean.fondo_id = "FIC"; const { error } = await sb.from("piezas").upsert(clean); if (error) throw error; },
-  async saveTx(t) { const clean = { ...t }; if (!clean.inversionista_id && clean.fondo_id && clean.fondo_id.length > 10) clean.inversionista_id = clean.fondo_id; const { error } = await sb.from("transacciones").upsert(clean); if (error) throw error; },
+  async savePiece(p) { const clean = { ...p }; ["supplier_id", "ref_id", "socio_aporta_id", "client_id", "validated_by", "exit_fund", "trade_ref", "devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { if (k in clean) clean[k] = Number(clean[k]) || 0; }); if (!clean.fondo_id || clean.fondo_id === "" || clean.fondo_id === "NA") clean.fondo_id = "FIC"; if (clean.inversionista_id && clean.inversionista_id.length < 10) clean.inversionista_id = null; const { error } = await sb.from("piezas").upsert(clean); if (error) throw error; },
+  async saveTx(t) { const clean = { ...t }; if (clean.inversionista_id && clean.inversionista_id.length < 10) clean.inversionista_id = null; if (!clean.fondo_id || clean.fondo_id === "") clean.fondo_id = "FIC"; const { error } = await sb.from("transacciones").upsert(clean); if (error) throw error; },
   async saveCorte(c) { const { error } = await sb.from("cortes").upsert(c); if (error) throw error; },
   async saveClient(c) { const { error } = await sb.from("clientes").upsert(c); if (error) throw error; },
   async saveSupplier(s) { const { error } = await sb.from("proveedores").upsert(s); if (error) throw error; },
@@ -2065,7 +2065,7 @@ export default function App() {
         catch (fe) { console.error("Foto save error:", fe); }
       }
 
-      await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: cleanP.entry_type === "trade_in" ? "TRADE" : "BUY", pieza_id: cleanP.id, monto: cleanP.entry_type === "trade_in" ? 0 : -(Number(cleanP.cost) || 0), fondo_id: cleanP.fondo_id, descripcion: `${etLabel(cleanP.entry_type)} — ${cleanP.name}`, metodo_pago: cleanP.entry_type === "trade_in" ? "Trade" : payMethod });
+      await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: cleanP.entry_type === "trade_in" ? "TRADE" : "BUY", pieza_id: cleanP.id, monto: cleanP.entry_type === "trade_in" ? 0 : -(Number(cleanP.cost) || 0), fondo_id: cleanP.fondo_id, inversionista_id: targetInv, descripcion: `${etLabel(cleanP.entry_type)} — ${cleanP.name}`, metodo_pago: cleanP.entry_type === "trade_in" ? "Trade" : payMethod });
       showToast(`${cleanP.name} registrada${pendingFotos.length ? ` con ${pendingFotos.length} foto(s)` : ""}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
@@ -2099,6 +2099,7 @@ export default function App() {
         const cashIn_ = p._cashIn || 0;
         const trRef = "TR-" + Date.now().toString(36).slice(-5).toUpperCase();
         const fondo = p.fondo_id || "FIC";
+        const invId = p.inversionista_id;
 
         // Mark piece as traded out
         await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: "trade_out", trade_ref: trRef, client_id: p.client_id || null });
@@ -2106,17 +2107,17 @@ export default function App() {
         // Create incoming pieces (track created for unique SKU)
         const created = [...(data.pieces || [])];
         for (const item of incoming) {
-          const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: p.xDate, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${p.sku || ""} (${p.name || ""} ref ${p.ref || ""})`.trim(), trade_ref: trRef };
+          const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, inversionista_id: invId, entry_type: "trade_in", entry_date: p.xDate, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${p.sku || ""} (${p.name || ""} ref ${p.ref || ""})`.trim(), trade_ref: trRef };
           created.push(np);
           await db.savePiece(np);
         }
 
         // Trade transaction (no profit)
         const desc = `Trade ${trRef}: ${p.name} → ${incoming.map(i => [i.brand, i.model].filter(Boolean).join(" ")).join(" + ")}`;
-        await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "TRADE", pieza_id: p.id, monto: 0, fondo_id: fondo, descripcion: desc, metodo_pago: "Trade", trade_ref: trRef });
+        await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "TRADE", pieza_id: p.id, monto: 0, fondo_id: fondo, inversionista_id: invId, descripcion: desc, metodo_pago: "Trade", trade_ref: trRef });
 
-        if (cashOut_ > 0) await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "TRADE", pieza_id: p.id, monto: -(cashOut_), fondo_id: fondo, descripcion: `${trRef} — Diferencia pagada (sale del fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
-        if (cashIn_ > 0) await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "TRADE", pieza_id: p.id, monto: cashIn_, fondo_id: fondo, descripcion: `${trRef} — Diferencia recibida (entra al fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
+        if (cashOut_ > 0) await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "TRADE", pieza_id: p.id, monto: -(cashOut_), fondo_id: fondo, inversionista_id: invId, descripcion: `${trRef} — Diferencia pagada (sale del fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
+        if (cashIn_ > 0) await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "TRADE", pieza_id: p.id, monto: cashIn_, fondo_id: fondo, inversionista_id: invId, descripcion: `${trRef} — Diferencia recibida (entra al fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
 
         showToast(`Trade registrado: ${p.name} → ${incoming.length} pieza(s)`);
         await refresh(); cm();
@@ -2129,7 +2130,7 @@ export default function App() {
       const costoReal = cost + gastosPieza;
       const profit = p.xPrice - costoReal;
       await db.savePiece({ id: p.id, status: "Vendido", stage: "liquidado", exit_type: p.xType, exit_fund: p.xFund, client_id: p.client_id || null });
-      await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, descripcion: `Venta ${p.name} → ${invInfo[p.xFund]?.short} (Costo: ${fmxn(cost)}${gastosPieza > 0 ? ` + Gastos: ${fmxn(gastosPieza)}` : ""}, Utilidad Real: ${fmxn(profit)})`, metodo_pago: p.payOut });
+      await db.saveTx({ id: uid(), fecha: p.xDate, tipo: "SELL", pieza_id: p.id, monto: p.xPrice, fondo_id: p.xFund, inversionista_id: p.inversionista_id, descripcion: `Venta ${p.name} (Costo: ${fmxn(cost)}${gastosPieza > 0 ? ` + Gastos: ${fmxn(gastosPieza)}` : ""}, Utilidad: ${fmxn(profit)})`, metodo_pago: p.payOut });
       showToast(`Venta registrada: ${p.name} — Utilidad Real: ${fmxn(profit)}`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
@@ -2140,6 +2141,7 @@ export default function App() {
       const { outPieces, incoming, cashOut, cashIn, date } = td_;
       const trRef = "TR-" + Date.now().toString(36).slice(-5).toUpperCase();
       const fondo = outPieces[0].fondo_id || "FIC";
+      const invId = outPieces[0].inversionista_id;
 
       // Mark outgoing pieces as traded out
       for (const op of outPieces) {
@@ -2149,22 +2151,22 @@ export default function App() {
       const created = [...(data.pieces || [])];
       for (const item of incoming) {
         const outDesc = outPieces.map(op => `${op.sku || ""} (${op.name || ""} ref ${op.ref || ""})`).join(" + ");
-        const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, entry_type: "trade_in", entry_date: date, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${outDesc}`.trim(), trade_ref: trRef };
+        const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, inversionista_id: invId, entry_type: "trade_in", entry_date: date, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${outDesc}`.trim(), trade_ref: trRef };
         created.push(np);
         await db.savePiece(np);
       }
 
       // Register trade transaction (no profit — just a swap)
       const desc = `Trade ${trRef}: ${outPieces.map(p => p.name).join(" + ")} → ${incoming.map(i => [i.brand, i.model].filter(Boolean).join(" ")).join(" + ")}`;
-      await db.saveTx({ id: uid(), fecha: date, tipo: "TRADE", pieza_id: outPieces[0].id, monto: 0, fondo_id: fondo, descripcion: desc, metodo_pago: "Trade", trade_ref: trRef });
+      await db.saveTx({ id: uid(), fecha: date, tipo: "TRADE", pieza_id: outPieces[0].id, monto: 0, fondo_id: fondo, inversionista_id: invId, descripcion: desc, metodo_pago: "Trade", trade_ref: trRef });
 
       // Cash OUT from FIC (we paid difference)
       if (cashOut > 0) {
-        await db.saveTx({ id: uid(), fecha: date, tipo: "TRADE", pieza_id: outPieces[0].id, monto: -(cashOut), fondo_id: fondo, descripcion: `${trRef} — Diferencia pagada (sale del fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
+        await db.saveTx({ id: uid(), fecha: date, tipo: "TRADE", pieza_id: outPieces[0].id, monto: -(cashOut), fondo_id: fondo, inversionista_id: invId, descripcion: `${trRef} — Diferencia pagada (sale del fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
       }
       // Cash IN to FIC (we received difference)
       if (cashIn > 0) {
-        await db.saveTx({ id: uid(), fecha: date, tipo: "TRADE", pieza_id: outPieces[0].id, monto: cashIn, fondo_id: fondo, descripcion: `${trRef} — Diferencia recibida (entra al fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
+        await db.saveTx({ id: uid(), fecha: date, tipo: "TRADE", pieza_id: outPieces[0].id, monto: cashIn, fondo_id: fondo, inversionista_id: invId, descripcion: `${trRef} — Diferencia recibida (entra al fondo)`, metodo_pago: "Trade+Cash", trade_ref: trRef });
       }
 
       showToast(`Trade ${trRef} registrado`);
