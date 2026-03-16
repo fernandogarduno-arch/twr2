@@ -2195,22 +2195,22 @@ export default function App() {
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, data]);
 
-  const hCap = useCallback(async (amt, desc, partner, fund) => {
+  const hCap = useCallback(async (amt, desc, partner, fund, fecha) => {
     try {
       const targetFund = fund || (activeInv === "ALL" ? "FIC" : activeInv);
-      await db.saveTx({ id: uid(), fecha: td(), tipo: "CAPITAL", monto: amt, fondo_id: targetFund, descripcion: desc || "Inyección de capital", metodo_pago: "Efectivo MXN", partner_id: partner });
-      showToast(`Capital registrado en ${invInfo[targetFund]?.short || targetFund}`);
+      await db.saveTx({ id: uid(), fecha: fecha || td(), tipo: "CAPITAL", monto: amt, fondo_id: targetFund, inversionista_id: targetFund, descripcion: desc || "Inyección de capital", metodo_pago: "Efectivo MXN", partner_id: partner });
+      showToast(`Capital registrado`);
       await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, activeInv, invInfo]);
 
-  const hRetiro = useCallback(async (amt, desc, partner, fund, motivo) => {
+  const hRetiro = useCallback(async (amt, desc, partner, fund, motivo, fecha) => {
     try {
       const tf = fund || (activeInv === "ALL" ? "FIC" : activeInv);
       const fc = (data?.txs || []).reduce((s, t) => t.fondo_id === tf ? s + (t.monto || 0) : s, 0);
       if (amt > fc && !confirm(`⚠️ Cash: ${fmxn(fc)}, retiro: ${fmxn(amt)}. ¿Continuar?`)) return;
       const lb = motivo === "venta" ? "Retiro al vender" : motivo === "total" ? "Retiro total" : "Retiro parcial";
-      await db.saveTx({ id: uid(), fecha: td(), tipo: "RETIRO_CAPITAL", monto: -(amt), fondo_id: tf, descripcion: desc || lb, metodo_pago: "Efectivo MXN", partner_id: partner });
+      await db.saveTx({ id: uid(), fecha: fecha || td(), tipo: "RETIRO_CAPITAL", monto: -(amt), fondo_id: tf, inversionista_id: tf, descripcion: desc || lb, metodo_pago: "Efectivo MXN", partner_id: partner });
       showToast(`Retiro registrado`); await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, activeInv, data]);
@@ -3027,16 +3027,17 @@ function CapitalForm({ onSave, onClose, socios, invInfo: fi, myInvs, defaultFund
   const info = fi || {};
   const [amt, setAmt] = useState(""); const [desc, setDesc] = useState(""); const [partner, setPartner] = useState(sl[0]?.id || "");
   const [fund, setFund] = useState(defaultFund || funds[0] || "FIC");
+  const [fecha, setFecha] = useState(td());
   const [saving, setSaving] = useState(false);
   const handleSave = async () => {
     if (!amt || saving) return;
     setSaving(true);
-    try { await onSave(Number(amt), desc, partner, fund); } catch(e) { alert("Error: " + e.message); setSaving(false); }
+    try { await onSave(Number(amt), desc, partner, fund, fecha); } catch(e) { alert("Error: " + e.message); setSaving(false); }
   };
   return <div className="space-y-4">
     {funds.length > 1 && <InvSel value={fund} onChange={setFund} label="¿A qué fondo?" funds={funds} invInfo={info} txs={txs} />}
     {funds.length === 1 && <div className="fb text-xs p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)", color: "var(--gd)" }}>{info[funds[0]]?.icon} Fondo: {info[funds[0]]?.short}</div>}
-    <Fl label="¿Quién inyecta?" req><div className="space-y-2">{sl.map(s => <button key={s.id} type="button" onClick={() => setPartner(s.id)} className="w-full flex items-center gap-3 p-3 rounded-xl" style={{ background: partner === s.id ? "rgba(201,169,110,.1)" : "rgba(255,255,255,.02)", border: partner === s.id ? "1.5px solid var(--gd)" : "1.5px solid rgba(255,255,255,.06)" }}><div className="w-8 h-8 rounded-lg flex items-center justify-center fb text-xs font-bold" style={{ background: `${s.color}20`, color: s.color }}>{s.participacion}%</div><div className="text-left"><div className="fb text-sm font-semibold text-white">{s.name}</div></div>{partner === s.id && <div className="ml-auto" style={{ color: "var(--gd)" }}>✓</div>}</button>)}</div></Fl>
+    <Fl label="Fecha" req><input type="date" className="ti" value={fecha} onChange={e => setFecha(e.target.value)} /></Fl>
     <Fl label="Monto (MXN)" req><input type="number" className="ti" value={amt} onChange={e => setAmt(e.target.value)} /></Fl>
     <Fl label="Descripción"><input className="ti" value={desc} onChange={e => setDesc(e.target.value)} /></Fl>
     <div className="flex gap-3"><BtnP onClick={handleSave} disabled={saving}>{saving ? "Guardando..." : "Registrar"}</BtnP><BtnS onClick={onClose} disabled={saving}>Cancelar</BtnS></div>
@@ -3047,15 +3048,17 @@ function RetiroCapitalForm({ onSave, onClose, socios, invInfo: fi, myInvs, defau
   const sl = socios || [], funds = myInvs || ["FIC"], info = fi || {};
   const [amt, setAmt] = useState(""), [desc, setDesc] = useState(""), [partner, setPartner] = useState(sl[0]?.id || "");
   const [fund, setFund] = useState(defaultFund || funds[0] || "FIC"), [motivo, setMotivo] = useState("parcial"), [saving, setSaving] = useState(false);
+  const [fecha, setFecha] = useState(td());
   const cash = (txs || []).reduce((s, t) => t.fondo_id === fund ? s + (t.monto || 0) : s, 0);
   const cap = (txs || []).filter(t => t.fondo_id === fund && t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
-  const go = async () => { if (!amt || saving || Number(amt) <= 0) return; setSaving(true); try { await onSave(Number(amt), desc, partner, fund, motivo); } catch(e) { alert(e.message); setSaving(false); } };
+  const go = async () => { if (!amt || saving || Number(amt) <= 0) return; setSaving(true); try { await onSave(Number(amt), desc, partner, fund, motivo, fecha); } catch(e) { alert(e.message); setSaving(false); } };
   return <div className="space-y-4">
     {funds.length > 1 && <InvSel value={fund} onChange={setFund} label="¿De qué fondo?" funds={funds} invInfo={info} txs={txs} />}
     <div className="grid grid-cols-2 gap-3">
       <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash</div><div className="fd font-bold text-lg text-white">{fmxn(cash)}</div></div>
       <div className="rounded-xl p-3 text-center" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Capital</div><div className="fd font-bold text-lg text-white">{fmxn(cap)}</div></div>
     </div>
+    <Fl label="Fecha" req><input type="date" className="ti" value={fecha} onChange={e => setFecha(e.target.value)} /></Fl>
     <Fl label="Motivo" req><div className="grid grid-cols-3 gap-2">
       {[{v:"parcial",l:"Parcial",i:"📤"},{v:"venta",l:"Al Vender",i:"💰"},{v:"total",l:"Total",i:"🏦"}].map(m => <button key={m.v} type="button" onClick={() => { setMotivo(m.v); if (m.v === "total") setAmt(String(Math.max(0, cash))); }} className="p-3 rounded-xl text-center" style={{ background: motivo === m.v ? "rgba(251,113,133,.1)" : "rgba(255,255,255,.03)", border: motivo === m.v ? "1.5px solid rgba(251,113,133,.3)" : "1.5px solid rgba(255,255,255,.06)" }}><div className="text-xl mb-1">{m.i}</div><div className="fb text-xs font-semibold" style={{ color: motivo === m.v ? "#FB7185" : "var(--cd)" }}>{m.l}</div></button>)}
     </div></Fl>
