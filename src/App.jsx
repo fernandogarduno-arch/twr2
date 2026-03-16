@@ -2008,8 +2008,11 @@ export default function App() {
     }, 0);
 
     const cap = fTxs.filter(t => t.tipo === "CAPITAL").reduce((s, t) => s + (t.monto || 0), 0);
-    const distributions = Math.abs(fTxs.filter(t => t.tipo === "RETIRO_CAPITAL" || t.tipo === "RETIRO").reduce((s, t) => s + (t.monto || 0), 0))
-      - fTxs.filter(t => t.tipo === "CANCEL_RETIRO").reduce((s, t) => s + (t.monto || 0), 0);
+    const retCapital = Math.abs(fTxs.filter(t => t.tipo === "RETIRO_CAPITAL").reduce((s, t) => s + (t.monto || 0), 0));
+    const retUtilidades = Math.abs(fTxs.filter(t => t.tipo === "RETIRO").reduce((s, t) => s + (t.monto || 0), 0));
+    const cancelRetiros = fTxs.filter(t => t.tipo === "CANCEL_RETIRO").reduce((s, t) => s + (t.monto || 0), 0);
+    const distributions = retCapital + retUtilidades - cancelRetiros;
+    const capNeto = cap - retCapital; // Lo que "pusieron" neto de retiros de capital
     const socios = data.socios || [];
 
     // For personal funds, splits don't apply — owner gets 100%
@@ -2017,7 +2020,7 @@ export default function App() {
     const isPersonal = currentFondo?.tipo === "personal";
 
     return {
-      inv, sold, invC, cash, rp, cap, distributions, gastosOf, isPersonal, activeFundName: fundInfo[af]?.short || af,
+      inv, sold, invC, cash, rp, cap, capNeto, retCapital, distributions, gastosOf, isPersonal, activeFundName: fundInfo[af]?.short || af,
       nav: cash + invC,
       moic: cap > 0 ? (cash + invC + distributions) / cap : 0,
       socios,
@@ -2395,13 +2398,31 @@ export default function App() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <St label={activeFund === "ALL" ? "NAV Global" : "NAV"} value={fmxn(comp.cash + comp.invC)} onClick={() => setPage("transactions")} />
-              <St label="Cash en Fondo" value={fmxn(comp.cash)} accent="var(--bl)" onClick={() => setPage("transactions")} />
-              <St label="Inventario (Costo)" value={fmxn(comp.invC)} accent="var(--gd)" onClick={() => { setPage("inventory"); setInvSort({ col: "status", dir: "asc" }); }} />
-              <St label="Utilidad Realizada" value={fmxn(comp.rp)} sub={comp.cap > 0 ? `${((comp.rp / comp.cap) * 100).toFixed(1)}% del capital` : ""} accent="var(--gn)" onClick={() => setPage("cortes")} />
-              <St label="MOIC" value={`${(comp.moic || 0).toFixed(2)}x`} sub={comp.distributions > 0 ? `${fmxn(comp.distributions)} retornado` : ""} accent={comp.moic >= 1 ? "var(--gn)" : "var(--pr)"} onClick={() => setPage("transactions")} />
-            </div>
+            {(() => {
+              const nav = comp.cash + comp.invC;
+              const ganancia = nav - comp.capNeto;
+              const pctGanancia = comp.capNeto > 0 ? ((ganancia / comp.capNeto) * 100).toFixed(1) : "0";
+              // Find user's split
+              const mySplit = comp.isPersonal ? 100 : (comp.socios?.find(s => s.id === user?.id)?.participacion || (myProfile?.role === "superuser" ? 40 : 0));
+              const myGanancia = Math.round(ganancia * mySplit / 100);
+              return <>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("transactions")}><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>Valor del Fondo</div><div className="fd text-xl md:text-2xl font-bold mt-1 text-white">{fmxn(nav)}</div><div className="fb text-xs mt-1" style={{ color: "var(--bl)" }}>Cash {fmxn(comp.cash)} · Piezas {fmxn(comp.invC)}</div></Cd>
+                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("transactions")}><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>Inversión Neta</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: "var(--bl)" }}>{fmxn(comp.capNeto)}</div><div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>{fmxn(comp.cap)} invertido{comp.retCapital > 0 ? ` · ${fmxn(comp.retCapital)} retirado` : ""}</div></Cd>
+                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("cortes")}><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>Ganancia</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: ganancia >= 0 ? "var(--gn)" : "var(--rd)" }}>{ganancia >= 0 ? "+" : ""}{fmxn(ganancia)}</div><div className="fb text-xs mt-1" style={{ color: ganancia >= 0 ? "var(--gn)" : "var(--rd)" }}>{ganancia >= 0 ? "+" : ""}{pctGanancia}% sobre inversión</div></Cd>
+                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("cortes")}><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>{comp.isPersonal ? "Tu Ganancia" : `Tu Parte ${mySplit}%`}</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: myGanancia >= 0 ? "var(--gn)" : "var(--rd)" }}>{myGanancia >= 0 ? "+" : ""}{fmxn(myGanancia)}</div><div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>{comp.rp !== ganancia ? `${fmxn(comp.rp)} realizada en ventas` : "de ventas directas"}</div></Cd>
+                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("transactions")}><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>MOIC</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: comp.moic >= 1 ? "var(--gn)" : "var(--pr)" }}>{(comp.moic || 0).toFixed(2)}x</div><div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>{comp.inv?.length || 0} pieza{(comp.inv?.length || 0) !== 1 ? "s" : ""} · {comp.sold?.length || 0} vendida{(comp.sold?.length || 0) !== 1 ? "s" : ""}</div></Cd>
+              </div>
+
+              {/* Cash vs Inventory breakdown bar */}
+              {nav > 0 && <div className="rounded-xl overflow-hidden" style={{ height: 6 }}>
+                <div className="h-full flex">
+                  <div style={{ width: `${(comp.cash / nav * 100).toFixed(1)}%`, background: "var(--bl)" }} />
+                  <div style={{ width: `${(comp.invC / nav * 100).toFixed(1)}%`, background: "var(--gd)" }} />
+                </div>
+              </div>}
+              </>;
+            })()}
             {comp.rp !== 0 && (
               <div className="rounded-xl p-4 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("cortes")} style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.1)" }}>
                 <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gn)" }}>{comp.isPersonal ? "Utilidad de tu Fondo Personal" : "Distribución de Utilidad (solo ventas directas)"}</div>
