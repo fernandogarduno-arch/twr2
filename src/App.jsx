@@ -998,9 +998,9 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
   const [aiResult, setAiResult] = useState(null);
   const [saving, setSaving] = useState(false);
   const fromFund = Math.max(0, (f.cost || 0) - newCapital);
-  const cashInFund = f.fondo_id && f.fondo_id !== "NA" ? (txsProp || []).reduce((s, t) => t.fondo_id === f.fondo_id ? s + (t.monto || 0) : s, 0) : 0;
-  const cashAfter = cashInFund - (f.cost || 0) + newCapital;
-  const needsMore = f.fondo_id !== "NA" && f.cost > 0 && cashAfter < 0 && !combinedFin;
+  const invId = f.inversionista_id || defaultFund;
+  const cashInFund = invId ? (txsProp || []).reduce((s, t) => (t.inversionista_id === invId || t.fondo_id === invId) ? s + (Number(t.monto) || 0) : s, 0) : 0;
+  const cashAfter = combinedFin ? cashInFund : cashInFund - (f.cost || 0);
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const autoName = (b, m) => [b, m].filter(Boolean).join(" ");
 
@@ -1184,46 +1184,38 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
             )}
           </div>
 
-          {/* Origen del recurso */}
+          {/* Origen del recurso — v22 simplified */}
+          {!piece && f.cost > 0 && f.entry_type !== "trade_in" && (
           <div className="rounded-xl p-4" style={{ background: "rgba(96,165,250,.04)", border: "1px solid rgba(96,165,250,.12)" }}>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--bl)" }}>↓ Origen del Recurso</span>
-              <span className="fb text-xs" style={{ color: "var(--cd)" }}>— ¿De dónde sale el dinero?</span>
+            <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--bl)" }}>↓ Origen del Recurso</div>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button type="button" onClick={() => { setCombinedFin(false); setNewCapital(0); }} className="p-3 rounded-xl text-center transition-all" style={{ background: !combinedFin ? "rgba(96,165,250,.12)" : "rgba(255,255,255,.03)", border: !combinedFin ? "1.5px solid rgba(96,165,250,.3)" : "1.5px solid rgba(255,255,255,.06)" }}>
+                <div className="text-lg mb-1">🏦</div>
+                <div className="fb text-xs font-semibold" style={{ color: !combinedFin ? "var(--bl)" : "var(--cd)" }}>Del Fondo</div>
+                <div className="fd text-sm font-bold mt-1" style={{ color: !combinedFin ? "white" : "var(--cd)" }}>{fmxn(cashInFund)}</div>
+              </button>
+              <button type="button" onClick={() => { setCombinedFin(true); setNewCapital(f.cost); }} className="p-3 rounded-xl text-center transition-all" style={{ background: combinedFin ? "rgba(74,222,128,.12)" : "rgba(255,255,255,.03)", border: combinedFin ? "1.5px solid rgba(74,222,128,.3)" : "1.5px solid rgba(255,255,255,.06)" }}>
+                <div className="text-lg mb-1">💰</div>
+                <div className="fb text-xs font-semibold" style={{ color: combinedFin ? "var(--gn)" : "var(--cd)" }}>Nueva Aportación</div>
+                <div className="fd text-xs mt-1" style={{ color: combinedFin ? "var(--gn)" : "var(--cd)" }}>Se inyecta capital</div>
+              </button>
             </div>
-            <InvSel value={f.fondo_id} onChange={v => { u("fondo_id", v); if (v === "NA") { setCombinedFin(false); setNewCapital(0); } }} funds={[...(myInvs || ["FIC"]), "NA"]} invInfo={invInfo} txs={txsProp} />
-            {f.fondo_id === "NA" && f.cost > 0 && (
-              <div className="mt-2 fb text-xs p-3 rounded-lg" style={{ background: "rgba(74,222,128,.06)", color: "var(--gn)" }}>
-                💰 Se registrará una inyección de capital de <strong>{fmxn(f.cost)}</strong> al Fondo de Inversión Compartida (FIC).
+            {combinedFin && (
+              <div className="p-3 rounded-lg mb-2" style={{ background: "rgba(74,222,128,.06)" }}>
+                <div className="fb text-xs" style={{ color: "var(--gn)" }}>Se registrará una inyección de capital de <strong>{fmxn(f.cost)}</strong> al fondo del inversionista</div>
               </div>
             )}
-            {!piece && f.cost > 0 && f.fondo_id !== "NA" && f.entry_type !== "trade_in" && (
-              <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={combinedFin} onChange={e => { setCombinedFin(e.target.checked); if (!e.target.checked) setNewCapital(0); else if (cashAfter < 0) setNewCapital(Math.abs(cashInFund - f.cost)); }} className="w-4 h-4 rounded" />
-                  <span className="fb text-sm text-white">Financiamiento combinado</span>
-                  <span className="fb text-xs" style={{ color: "var(--cd)" }}>— Fondo + aportación nueva</span>
-                </label>
-                {combinedFin && (
-                  <div className="mt-3 space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}>
-                        <div className="fb text-xs" style={{ color: "var(--bl)" }}>Del {invInfo[f.fondo_id]?.short || "Fondo"}</div>
-                        <div className="fd font-bold text-lg text-white">{fmxn(fromFund)}</div>
-                      </div>
-                      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(74,222,128,.06)" }}>
-                        <div className="fb text-xs" style={{ color: "var(--gn)" }}>Nueva Aportación</div>
-                        <div className="fd font-bold text-lg" style={{ color: "var(--gn)" }}>{fmxn(newCapital)}</div>
-                      </div>
-                    </div>
-                    <Fl label="Monto de nueva aportación (MXN)" hint="Se registra como inyección de capital al fondo">
-                      <input type="number" className="ti" value={newCapital || ""} onChange={e => { const v = Math.min(Number(e.target.value), f.cost); setNewCapital(v); }} />
-                    </Fl>
-                    {newCapital > 0 && <div className="fb text-xs text-center" style={{ color: cashAfter >= 0 ? "var(--gn)" : "var(--rd)" }}>Cash en fondo después: {fmxn(cashAfter)} {cashAfter >= 0 ? "✓" : "⚠️ aún falta"}</div>}
-                  </div>
-                )}
+            {!combinedFin && cashAfter < 0 && (
+              <div className="p-3 rounded-lg" style={{ background: "rgba(251,113,133,.06)" }}>
+                <div className="fb text-xs mb-2" style={{ color: "var(--rd)" }}>⚠️ Faltan {fmxn(Math.abs(cashAfter))} en el fondo</div>
+                <button type="button" onClick={() => { setCombinedFin(true); setNewCapital(f.cost); }} className="fb text-xs px-4 py-2 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>
+                  💰 Registrar como nueva aportación
+                </button>
               </div>
             )}
+            {!combinedFin && cashAfter >= 0 && <div className="fb text-xs text-center p-2 rounded-lg" style={{ background: "rgba(74,222,128,.04)", color: "var(--gn)" }}>✓ El fondo cubre esta compra — Cash después: {fmxn(cashAfter)}</div>}
           </div>
+          )}
 
           <div className="grid grid-cols-3 gap-3">
             <Fl label="Motivo de Entrada" req><select className="ti" value={f.entry_type} onChange={e => u("entry_type", e.target.value)}>{ETYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Fl>
@@ -1238,22 +1230,13 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                 onChange={e => { const n = Number(e.target.value); sF(p => ({ ...p, cost: n, ...calcPr(n) })); }} />
             </Fl>
             {/* Live cash indicator */}
-            {f.cost > 0 && f.fondo_id && f.fondo_id !== "NA" && f.entry_type !== "trade_in" && (
+            {f.cost > 0 && !combinedFin && f.entry_type !== "trade_in" && (
               <div className="mt-2 rounded-xl p-3" style={{ background: cashAfter >= 0 ? "rgba(74,222,128,.04)" : "rgba(251,113,133,.06)", border: `1px solid ${cashAfter >= 0 ? "rgba(74,222,128,.1)" : "rgba(251,113,133,.15)"}` }}>
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash actual</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>{fmxn(cashInFund)}</div></div>
                   <div><div className="fb text-xs" style={{ color: "var(--rd)" }}>Costo pieza</div><div className="fd font-bold" style={{ color: "var(--rd)" }}>-{fmxn(f.cost)}</div></div>
-                  <div><div className="fb text-xs" style={{ color: cashAfter >= 0 ? "var(--gn)" : "var(--rd)" }}>{combinedFin ? "Después (con aporte)" : "Después"}</div><div className="fd font-bold" style={{ color: cashAfter >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(cashAfter)}</div></div>
+                  <div><div className="fb text-xs" style={{ color: cashAfter >= 0 ? "var(--gn)" : "var(--rd)" }}>Después</div><div className="fd font-bold" style={{ color: cashAfter >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(cashAfter)}</div></div>
                 </div>
-                {cashAfter < 0 && !combinedFin && (
-                  <div className="mt-2 text-center">
-                    <div className="fb text-xs mb-2" style={{ color: "var(--rd)" }}>⚠️ Faltan {fmxn(Math.abs(cashAfter))} en el fondo</div>
-                    <button type="button" onClick={() => { setCombinedFin(true); setNewCapital(Math.abs(cashAfter)); }} className="fb text-xs px-4 py-2 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>
-                      💰 Cubrir faltante con nueva aportación ({fmxn(Math.abs(cashAfter))})
-                    </button>
-                  </div>
-                )}
-                {cashAfter >= 0 && <div className="mt-1 text-center fb text-xs" style={{ color: "var(--gn)" }}>✓ El fondo cubre esta compra</div>}
               </div>
             )}
             <div className="grid grid-cols-3 gap-2 mt-2">
@@ -2057,26 +2040,20 @@ export default function App() {
       // Force numeric on money fields
       ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { cleanP[k] = Number(cleanP[k]) || 0; });
       const payMethod = p.metodo_pago || "Efectivo MXN";
-      const isNA = cleanP.fondo_id === "NA";
-      const targetFund = isNA ? (activeInv === "ALL" ? "FIC" : activeInv) : cleanP.fondo_id;
+      const targetInv = cleanP.inversionista_id || (activeInv === "ALL" ? (investors[0]?.id || null) : activeInv);
+      cleanP.inversionista_id = targetInv;
+      if (!cleanP.fondo_id || cleanP.fondo_id === "NA") cleanP.fondo_id = "FIC";
 
       // Cash validation (warning, not blocking)
-      if (!isNA && cleanP.entry_type !== "trade_in" && cleanP.cost > 0) {
+      if (newCap === 0 && cleanP.entry_type !== "trade_in" && cleanP.cost > 0) {
         const txs = data?.txs || [];
-        const currentCash = txs.reduce((s, t) => t.fondo_id === targetFund ? s + (t.monto || 0) : s, 0);
-        const availCash = currentCash + newCap;
-        const fundName = invInfo[targetFund]?.short || targetFund;
-        if (cleanP.cost > availCash && !confirm(`⚠️ ${fundName} tiene ${fmxn(availCash)} pero la pieza cuesta ${fmxn(cleanP.cost)}.\n\nEsto dejará el cash en negativo (${fmxn(availCash - cleanP.cost)}).\n\n¿Continuar de todos modos?`)) return;
+        const currentCash = txs.reduce((s, t) => (t.inversionista_id === targetInv || t.fondo_id === targetInv) ? s + (Number(t.monto) || 0) : s, 0);
+        if (cleanP.cost > currentCash && !confirm(`⚠️ El fondo tiene ${fmxn(currentCash)} pero la pieza cuesta ${fmxn(cleanP.cost)}.\n\nEsto dejará el cash en negativo (${fmxn(currentCash - cleanP.cost)}).\n\n¿Continuar de todos modos?`)) return;
       }
 
-      // Nueva Aportación: register full cost as capital into target fund
-      if (isNA) {
-        await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: cleanP.cost, fondo_id: targetFund, descripcion: `Nueva aportación para ${cleanP.name}`, metodo_pago: payMethod, partner_id: user?.id });
-        cleanP.fondo_id = targetFund;
-      }
-      // Combined financing: partial capital injection
-      else if (newCap > 0) {
-        await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: newCap, fondo_id: cleanP.fondo_id, descripcion: `Aportación parcial para ${cleanP.name} (financiamiento combinado)`, metodo_pago: payMethod, partner_id: user?.id });
+      // Nueva Aportación: register full cost as capital
+      if (newCap > 0) {
+        await db.saveTx({ id: uid(), fecha: cleanP.entry_date, tipo: "CAPITAL", monto: newCap, fondo_id: cleanP.fondo_id, inversionista_id: targetInv, descripcion: `Nueva aportación para ${cleanP.name}`, metodo_pago: payMethod, partner_id: user?.id });
       }
 
       // Save piece FIRST (so FK constraint is satisfied)
