@@ -2627,7 +2627,7 @@ export default function App() {
                   <tbody>{fp.map(p => (
                     <tr key={p.id} className="hover:bg-white/[.02]" style={p.status === "Corregido" ? { opacity: 0.35 } : {}}>
                       <TD><span className="font-mono text-xs" style={{ color: "var(--cd)" }}>{p.sku || "—"}</span></TD>
-                      <TD b>{p.name} {p.publish_catalog && <span title="En catálogo público" style={{ color: "var(--gn)" }}>●</span>}</TD>
+                      <TD b>{p.name} {p.publish_catalog && <span title="En catálogo público" style={{ color: "var(--gn)" }}>●</span>}{p.status === "Disponible" && (!p.ref || !p.serial || !(data.fotos || []).some(f => f.pieza_id === p.id)) && <span title={`Pendiente: ${!p.ref ? "sin ref" : ""}${!p.serial ? " sin serial" : ""}${!(data.fotos || []).some(f => f.pieza_id === p.id) ? " sin fotos" : ""}`} className="ml-1 fb text-xs px-1.5 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,.12)", color: "#FBBF24", fontSize: 10 }}>⚠ Pendiente</span>}</TD>
                       <TD><Bd text={etLabel(p.entry_type)} v={p.entry_type === "trade_in" ? "gold" : "blue"} /></TD>
                       <TD><Bd text={invInfo[p.fondo_id]?.short || p.fondo_id || "—"} v="gold" /></TD>
                       <TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD>
