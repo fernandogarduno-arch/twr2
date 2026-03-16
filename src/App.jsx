@@ -11,7 +11,7 @@ const sb = createClient(
 );
 
 /* ═══ UTILS ═══ */
-const uid = () => "W" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const uid = () => crypto.randomUUID();
 const fmxn = (n) => { if (n == null || isNaN(n)) return "—"; const a = Math.abs(n); return (n < 0 ? "-" : "") + (a >= 1000 ? `$${a.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : `$${a}`); };
 const td = () => new Date().toISOString().slice(0, 10);
 const calcPr = (c) => ({ price_dealer: Math.round(c * 1.08), price_asked: Math.round(c * 1.15), price_trade: Math.round(c * 1.2) });
@@ -76,8 +76,25 @@ const db = {
     const { data } = await sb.from("transaccion_docs").select("*").eq("entidad_tipo", entType).eq("entidad_id", entId);
     return data || [];
   },
-  async savePiece(p) { const clean = { ...p }; ["supplier_id", "ref_id", "socio_aporta_id", "client_id", "validated_by", "exit_fund", "trade_ref", "devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { if (k in clean) clean[k] = Number(clean[k]) || 0; }); if (!clean.fondo_id || clean.fondo_id === "" || clean.fondo_id === "NA") clean.fondo_id = "FIC"; if (clean.inversionista_id && clean.inversionista_id.length < 10) clean.inversionista_id = null; const { error } = await sb.from("piezas").upsert(clean); if (error) throw error; },
-  async saveTx(t) { const clean = { ...t }; if (clean.inversionista_id && clean.inversionista_id.length < 10) clean.inversionista_id = null; if (!clean.fondo_id || clean.fondo_id === "") clean.fondo_id = "FIC"; const { error } = await sb.from("transacciones").upsert(clean); if (error) throw error; },
+  async savePiece(p, isNew) {
+    const clean = { ...p };
+    if (isNew || Object.keys(clean).length > 5) {
+      // Full save — clean all FK and numeric fields
+      ["supplier_id", "ref_id", "socio_aporta_id", "client_id", "validated_by", "exit_fund", "trade_ref", "devolucion_de"].forEach(k => { if (k in clean && (clean[k] === "" || clean[k] === undefined)) clean[k] = null; });
+      ["cost","price_dealer","price_asked","price_trade","referenciada_comision"].forEach(k => { if (k in clean) clean[k] = Number(clean[k]) || 0; });
+      if (!clean.fondo_id || clean.fondo_id === "" || clean.fondo_id === "NA") clean.fondo_id = "FIC";
+    }
+    if (clean.inversionista_id && clean.inversionista_id.length < 10) clean.inversionista_id = null;
+    if (isNew) {
+      const { error } = await sb.from("piezas").insert(clean);
+      if (error) throw error;
+    } else {
+      const id = clean.id; delete clean.id;
+      const { error } = await sb.from("piezas").update(clean).eq("id", id);
+      if (error) throw error;
+    }
+  },
+  async saveTx(t) { const clean = { ...t }; if (clean.inversionista_id && clean.inversionista_id.length < 10) clean.inversionista_id = null; if (!clean.fondo_id || clean.fondo_id === "") clean.fondo_id = "FIC"; const { error } = await sb.from("transacciones").insert(clean); if (error) throw error; },
   async saveCorte(c) { const { error } = await sb.from("cortes").upsert(c); if (error) throw error; },
   async saveClient(c) { const { error } = await sb.from("clientes").upsert(c); if (error) throw error; },
   async saveSupplier(s) { const { error } = await sb.from("proveedores").upsert(s); if (error) throw error; },
@@ -1359,7 +1376,6 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
         <div className="flex gap-3">
           <BtnP onClick={async () => {
             if (saving) return;
-            if (!piece && f.entry_type !== "trade_in" && (!f.cost || Number(f.cost) <= 0)) { alert("Debes poner el precio de costo antes de guardar"); return; }
             if (!piece && !f.brand) { alert("Selecciona una marca"); return; }
             setSaving(true);
             try { await onSave({ ...f, _newCapital: combinedFin ? (Number(f.cost) || 0) : 0, _pendingFotos: localFotos.filter(ft => ft._pending) }); } catch(e) { alert("Error: " + e.message); } finally { setSaving(false); }
@@ -2063,7 +2079,7 @@ export default function App() {
       }
 
       // Save piece FIRST (so FK constraint is satisfied)
-      await db.savePiece(cleanP);
+      await db.savePiece(cleanP, true);
 
       // Now save pending photos (piece exists in DB)
       for (const foto of pendingFotos) {
@@ -2093,19 +2109,33 @@ export default function App() {
         const edits = trackFields.filter(k => String(old[k] ?? "") !== String(cleanP[k] ?? "")).map(k => ({ id: crypto.randomUUID(), pieza_id: cleanP.id, campo: k, valor_antes: String(old[k] ?? ""), valor_despues: String(cleanP[k] ?? ""), editado_por: user?.email || "unknown" }));
         for (const e of edits) { try { await sb.from("pieza_edits").insert(e); } catch(ee) { console.warn("Edit track err:", ee); } }
       }
-      // v22: If cost changed from 0 to >0, fix the BUY tx and optionally add CAPITAL
-      if (old && (Number(old.cost) || 0) === 0 && cleanP.cost > 0) {
+      // v22: Handle cost changes — correct BUY and CAPITAL transactions
+      const oldCost = Number(old?.cost) || 0;
+      const newCost = cleanP.cost;
+      if (old && oldCost !== newCost) {
         const existingBuy = (data?.txs || []).find(t => t.pieza_id === cleanP.id && t.tipo === "BUY");
-        if (existingBuy && Number(existingBuy.monto) === 0) {
-          // Update BUY to reflect actual cost
-          await sb.from("transacciones").update({ monto: -(cleanP.cost), inversionista_id: invId }).eq("id", existingBuy.id);
-        }
-        // If "Nueva Aportación" selected, create CAPITAL tx
-        if (newCap > 0) {
-          await db.saveTx({ id: uid(), fecha: cleanP.entry_date || td(), tipo: "CAPITAL", monto: cleanP.cost, fondo_id: "FIC", inversionista_id: invId, descripcion: `Nueva aportación para ${cleanP.name}`, metodo_pago: p.metodo_pago || "Efectivo MXN", partner_id: user?.id });
+        const existingCap = (data?.txs || []).find(t => t.tipo === "CAPITAL" && t.descripcion?.includes(old.name));
+
+        if (oldCost === 0 && newCost > 0) {
+          // Case A: First time setting price (was $0)
+          if (existingBuy) {
+            await sb.from("transacciones").update({ monto: -(newCost), inversionista_id: invId }).eq("id", existingBuy.id);
+          }
+          // If "Nueva Aportación" selected, create CAPITAL
+          if (newCap > 0) {
+            await db.saveTx({ id: uid(), fecha: cleanP.entry_date || td(), tipo: "CAPITAL", monto: newCost, fondo_id: "FIC", inversionista_id: invId, descripcion: `Nueva aportación para ${cleanP.name}`, metodo_pago: p.metodo_pago || "Efectivo MXN", partner_id: user?.id });
+          }
+        } else if (oldCost > 0 && newCost > 0) {
+          // Case B: Correcting existing price (e.g. 180k → 200k)
+          if (existingBuy) {
+            await sb.from("transacciones").update({ monto: -(newCost) }).eq("id", existingBuy.id);
+          }
+          if (existingCap) {
+            await sb.from("transacciones").update({ monto: newCost }).eq("id", existingCap.id);
+          }
         }
       }
-      await db.savePiece(cleanP); showToast("Pieza actualizada"); await refresh(); cm();
+      await db.savePiece(cleanP, false); showToast("Pieza actualizada"); await refresh(); cm();
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, data, user]);
 
@@ -2130,7 +2160,7 @@ export default function App() {
         for (const item of incoming) {
           const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, inversionista_id: invId, entry_type: "trade_in", entry_date: p.xDate, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${p.sku || ""} (${p.name || ""} ref ${p.ref || ""})`.trim(), trade_ref: trRef };
           created.push(np);
-          await db.savePiece(np);
+          await db.savePiece(np, true);
         }
 
         // Trade transaction (no profit)
@@ -2174,7 +2204,7 @@ export default function App() {
         const outDesc = outPieces.map(op => `${op.sku || ""} (${op.name || ""} ref ${op.ref || ""})`).join(" + ");
         const np = { id: uid(), sku: genSku(created), name: [item.brand, item.model].filter(Boolean).join(" "), brand: item.brand, model: item.model, ref: item.ref, condition: "Excelente", auth_level: "VISUAL", fondo_id: fondo, inversionista_id: invId, entry_type: "trade_in", entry_date: date, cost: Number(item.value) || 0, ...calcPr(Number(item.value) || 0), status: "Disponible", stage: "inventario", notes: `Trade ${trRef} ← ${outDesc}`.trim(), trade_ref: trRef };
         created.push(np);
-        await db.savePiece(np);
+        await db.savePiece(np, true);
       }
 
       // Register trade transaction (no profit — just a swap)
