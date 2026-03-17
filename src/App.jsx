@@ -47,7 +47,7 @@ const stor = {
 /* ═══ DB LAYER ═══ */
 const db = {
   async loadAll() {
-    const [pz, tx, ct, fo, cl, su, st, cr, sc, pr, cp, fn] = await Promise.all([
+    const [pz, tx, ct, fo, cl, su, st, cr, sc, pr, cp, fn, col, ctr] = await Promise.all([
       sb.from("piezas").select("*").order("created_at", { ascending: false }),
       sb.from("transacciones").select("*").order("fecha", { ascending: false }).order("created_at", { ascending: false }),
       sb.from("cortes").select("*").order("periodo", { ascending: false }),
@@ -60,6 +60,8 @@ const db = {
       sb.from("profiles").select("*").order("name"),
       sb.from("costos_pieza").select("*"),
       sb.from("fondos").select("*").eq("activo", true),
+      sb.from("coleccion_piezas").select("*").order("created_at", { ascending: false }),
+      sb.from("coleccion_transfers").select("*").order("created_at", { ascending: false }),
     ]);
     return {
       pieces: pz.data || [], txs: tx.data || [], cortes: ct.data || [],
@@ -70,6 +72,8 @@ const db = {
       profiles: pr.data || [],
       costos: cp.data || [],
       fondos: fn.data || [],
+      coleccion: col.data || [],
+      colTransfers: ctr.data || [],
     };
   },
   async loadDocs(entType, entId) {
@@ -2421,13 +2425,14 @@ export default function App() {
   }
 
   const navI = [
-    { id: "dashboard", i: IC.dash, l: "Dashboard" },
-    { id: "inventory", i: IC.inv, l: "Inventario" },
-    { id: "transactions", i: IC.tx, l: "Transacciones" },
-    { id: "cortes", i: IC.cal, l: "Cortes" },
-    { id: "catalogs", i: IC.cat, l: "Catálogos" },
-    { id: "reports", i: IC.rep, l: "Reportes" },
-    { id: "settings", i: IC.set, l: "Config" },
+    { id: "dashboard", i: IC.dash, l: "Dashboard", t: "Resumen general del fondo: KPIs, gráficas, inventario activo" },
+    { id: "inventory", i: IC.inv, l: "Inventario", t: "Todas las piezas: disponibles, vendidas, tradeadas, corregidas" },
+    { id: "coleccion", i: "M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z", l: "Mi Colección", t: "Tu colección personal de relojes — inventario privado, seguros, valoración" },
+    { id: "transactions", i: IC.tx, l: "Transacciones", t: "Estado de cuenta con todas las operaciones y saldo corrido" },
+    { id: "cortes", i: IC.cal, l: "Cortes", t: "Cortes mensuales de utilidades y distribución entre socios" },
+    { id: "catalogs", i: IC.cat, l: "Catálogos", t: "Clientes, proveedores y base de datos de relojes" },
+    { id: "reports", i: IC.rep, l: "Reportes", t: "Audit log y historial de cambios" },
+    { id: "settings", i: IC.set, l: "Config", t: "Usuarios, permisos y configuración del sistema" },
   ];
 
   const TH = ({ children, r }) => <th className={`fb text-xs font-semibold uppercase tracking-wider py-3 px-3 ${r ? "text-right" : "text-left"}`} style={{ color: "var(--gk)", borderBottom: "1px solid rgba(255,255,255,.06)" }}>{children}</th>;
@@ -2443,7 +2448,7 @@ export default function App() {
           {side && <div><div className="fd text-sm font-bold text-white leading-none">The Wrist</div><div className="fd text-xs" style={{ color: "var(--gk)" }}>Room v13</div></div>}
         </div>
         <nav className="flex-1 p-2 space-y-1">
-          {navI.map(n => <button key={n.id} onClick={() => { setPage(n.id); if (window.innerWidth < 768) setSide(false); }} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-sm transition-all ${page === n.id ? "" : "hover:bg-white/[.03]"}`} style={page === n.id ? { background: "rgba(201,169,110,.1)", color: "var(--gd)" } : { color: "var(--cd)" }}><Ico d={n.i} s={16} />{side && <span className="font-medium text-sm">{n.l}</span>}</button>)}
+          {navI.map(n => <button key={n.id} onClick={() => { setPage(n.id); if (window.innerWidth < 768) setSide(false); }} title={n.t} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-sm transition-all ${page === n.id ? "" : "hover:bg-white/[.03]"}`} style={page === n.id ? { background: "rgba(201,169,110,.1)", color: "var(--gd)" } : { color: "var(--cd)" }}><Ico d={n.i} s={16} />{side && <span className="font-medium text-sm">{n.l}</span>}</button>)}
         </nav>
         <div className="p-2" style={{ borderTop: "1px solid rgba(201,169,110,.08)" }}>
           {side && <div className="px-2 mb-2"><div className="text-xs font-semibold text-white truncate">{user.email}</div></div>}
@@ -2465,7 +2470,7 @@ export default function App() {
           <div className="space-y-5 au">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div><h1 className="fd text-2xl md:text-3xl font-bold text-white">Dashboard</h1></div>
-              <div className="flex gap-2"><BtnP onClick={() => setModal("ap")}><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Pieza</span></BtnP><BtnS onClick={() => setModal("ac")}>+ Capital</BtnS><BtnS onClick={() => setModal("rc")}>↑ Retiro</BtnS></div>
+              <div className="flex gap-2"><BtnP onClick={() => setModal("ap")} title="Dar de alta una pieza nueva al inventario"><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Pieza</span></BtnP><BtnS onClick={() => setModal("ac")} title="Inyectar capital al fondo del inversionista">+ Capital</BtnS><BtnS onClick={() => setModal("rc")} title="Retirar capital del fondo">↑ Retiro</BtnS></div>
             </div>
 
             {/* Fund Tabs */}
@@ -2495,11 +2500,11 @@ export default function App() {
               const myGanancia = Math.round(ganancia * mySplit / 100);
               return <>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("transactions")}><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>Valor del Fondo</div><div className="fd text-xl md:text-2xl font-bold mt-1 text-white">{fmxn(nav)}</div><div className="fb text-xs mt-1" style={{ color: "var(--bl)" }}>Cash {fmxn(comp.cash)} · Piezas {fmxn(comp.invC)}</div></Cd>
-                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("transactions")}><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>Inversión Neta</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: "var(--bl)" }}>{fmxn(comp.capNeto)}</div><div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>{fmxn(comp.cap)} invertido{comp.retCapital > 0 ? ` · ${fmxn(comp.retCapital)} retirado` : ""}</div></Cd>
-                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("cortes")}><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>Ganancia</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: ganancia >= 0 ? "var(--gn)" : "var(--rd)" }}>{ganancia >= 0 ? "+" : ""}{fmxn(ganancia)}</div><div className="fb text-xs mt-1" style={{ color: ganancia >= 0 ? "var(--gn)" : "var(--rd)" }}>{ganancia >= 0 ? "+" : ""}{pctGanancia}% sobre inversión</div></Cd>
-                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("cortes")}><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>{comp.isPersonal ? "Tu Ganancia" : `Tu Parte ${mySplit}%`}</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: myGanancia >= 0 ? "var(--gn)" : "var(--rd)" }}>{myGanancia >= 0 ? "+" : ""}{fmxn(myGanancia)}</div><div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>{comp.rp !== ganancia ? `${fmxn(comp.rp)} realizada en ventas` : "de ventas directas"}</div></Cd>
-                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("transactions")}><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>MOIC</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: comp.moic >= 1 ? "var(--gn)" : "var(--pr)" }}>{(comp.moic || 0).toFixed(2)}x</div><div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>{comp.inv?.length || 0} pieza{(comp.inv?.length || 0) !== 1 ? "s" : ""} · {comp.sold?.length || 0} vendida{(comp.sold?.length || 0) !== 1 ? "s" : ""}</div></Cd>
+                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("transactions")} title="Valor total del fondo = Cash disponible + Valor de piezas en inventario"><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>Valor del Fondo</div><div className="fd text-xl md:text-2xl font-bold mt-1 text-white">{fmxn(nav)}</div><div className="fb text-xs mt-1" style={{ color: "var(--bl)" }}>Cash {fmxn(comp.cash)} · Piezas {fmxn(comp.invC)}</div></Cd>
+                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("transactions")} title="Capital que el inversionista tiene dentro del fondo (invertido - retirado)"><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>Inversión Neta</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: "var(--bl)" }}>{fmxn(comp.capNeto)}</div><div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>{fmxn(comp.cap)} invertido{comp.retCapital > 0 ? ` · ${fmxn(comp.retCapital)} retirado` : ""}</div></Cd>
+                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("cortes")} title="Utilidad generada por ventas a clientes finales (venta - costo - gastos)"><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>Ganancia</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: ganancia >= 0 ? "var(--gn)" : "var(--rd)" }}>{ganancia >= 0 ? "+" : ""}{fmxn(ganancia)}</div><div className="fb text-xs mt-1" style={{ color: ganancia >= 0 ? "var(--gn)" : "var(--rd)" }}>{ganancia >= 0 ? "+" : ""}{pctGanancia}% sobre inversión</div></Cd>
+                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("cortes")} title="Tu porcentaje de la utilidad según el esquema de participación"><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>{comp.isPersonal ? "Tu Ganancia" : `Tu Parte ${mySplit}%`}</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: myGanancia >= 0 ? "var(--gn)" : "var(--rd)" }}>{myGanancia >= 0 ? "+" : ""}{fmxn(myGanancia)}</div><div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>{comp.rp !== ganancia ? `${fmxn(comp.rp)} realizada en ventas` : "de ventas directas"}</div></Cd>
+                <Cd className="p-4 md:p-5 cursor-pointer hover:brightness-110 transition-all" onClick={() => setPage("transactions")} title="Multiple on Invested Capital — cuántas veces ha crecido tu dinero (NAV + retiros / capital invertido)"><div className="fb text-xs font-medium uppercase tracking-widest" style={{ color: "var(--cd)" }}>MOIC</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{ color: comp.moic >= 1 ? "var(--gn)" : "var(--pr)" }}>{(comp.moic || 0).toFixed(2)}x</div><div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>{comp.inv?.length || 0} pieza{(comp.inv?.length || 0) !== 1 ? "s" : ""} · {comp.sold?.length || 0} vendida{(comp.sold?.length || 0) !== 1 ? "s" : ""}</div></Cd>
               </div>
 
               {/* Cash vs Inventory breakdown bar */}
@@ -2631,7 +2636,7 @@ export default function App() {
           <div className="space-y-5 au">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h1 className="fd text-2xl md:text-3xl font-bold text-white">Inventario</h1>
-              <BtnP onClick={() => setModal("ap")}><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Nueva Pieza</span></BtnP>
+              <BtnP onClick={() => setModal("ap")} title="Registrar una nueva pieza en el inventario"><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Nueva Pieza</span></BtnP>
             </div>
             {/* Investor tabs */}
             {myInvs.length > 1 && (
@@ -2672,14 +2677,14 @@ export default function App() {
                       <TD><Bd text={p.status === "Vendido" && p.exit_type === "trade_out" ? "Trade Out" : p.status === "Vendido" ? "Vendido ✓" : p.status} v={p.status === "Disponible" ? "green" : p.exit_type === "trade_out" ? "gold" : p.status === "Vendido" ? "purple" : p.status === "Devuelto" ? "red" : p.status === "Corregido" ? "default" : "default"} /></TD>
                       <TD>
                         <div className="flex gap-1">
-                          <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--cd)" }} onClick={() => { setSel(p); setModal("ep"); }}><Ico d={IC.edit} s={14} /></button>
+                          <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--cd)" }} onClick={() => { setSel(p); setModal("ep"); }} title="✏️ Editar pieza — modificar datos, fotos, precios"><Ico d={IC.edit} s={14} /></button>
                           {p.status === "Disponible" && <>
-                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--gn)" }} onClick={() => { setSel(p); setModal("sell"); }}><Ico d={IC.chk} s={14} /></button>
-                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--gd)" }} onClick={() => { setSel(p); setModal("trade"); }}><Ico d={IC.swap} s={14} /></button>
+                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--gn)" }} onClick={() => { setSel(p); setModal("sell"); }} title="✅ Registrar venta a cliente — genera utilidad"><Ico d={IC.chk} s={14} /></button>
+                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--gd)" }} onClick={() => { setSel(p); setModal("trade"); }} title="🔄 Trade — intercambiar por otra(s) pieza(s) +/- diferencia"><Ico d={IC.swap} s={14} /></button>
                           </>}
-                          {p.status === "Vendido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }} onClick={() => hDevolucion(p)} title="Devolver">↩</button>}
-                          {p.status !== "Corregido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#F59E0B" }} onClick={() => hCorregir(p)} title="Corregir entrada">⊘</button>}
-                          {p.status === "Disponible" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#25D366" }} onClick={() => { const msg = encodeURIComponent(`Hola! Te comparto esta pieza disponible:\n\n*${p.brand} ${p.model}*\nRef: ${p.ref || "N/A"}\nPrecio: ${fmxn(p.price_asked)}\n\nThe Wrist Room — Mérida, Yucatán\nhttps://twr2.vercel.app/catalog`); window.open(`https://wa.me/?text=${msg}`, "_blank"); }} title="Compartir WhatsApp">📱</button>}
+                          {p.status === "Vendido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }} onClick={() => hDevolucion(p)} title={p.exit_type === "trade_out" ? "↩ Devolver trade — rehabilita esta pieza y marca las entrantes como devueltas" : "↩ Devolver venta — regresa la pieza a inventario y reversa el ingreso"}>↩</button>}
+                          {p.status !== "Corregido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#F59E0B" }} onClick={() => hCorregir(p)} title="⊘ Corregir — anula esta entrada con transacciones inversas (no borra nada)">⊘</button>}
+                          {p.status === "Disponible" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#25D366" }} onClick={() => { const msg = encodeURIComponent(`Hola! Te comparto esta pieza disponible:\n\n*${p.brand} ${p.model}*\nRef: ${p.ref || "N/A"}\nPrecio: ${fmxn(p.price_asked)}\n\nThe Wrist Room — Mérida, Yucatán\nhttps://twr2.vercel.app/catalog`); window.open(`https://wa.me/?text=${msg}`, "_blank"); }} title="📱 Compartir por WhatsApp — envía link con datos de la pieza">📱</button>}
                         </div>
                       </TD>
                     </tr>
@@ -2689,6 +2694,147 @@ export default function App() {
             </Cd>
           </div>
         )}
+
+        {/* ═══ MI COLECCIÓN ═══ */}
+        {page === "coleccion" && (() => {
+          const myCol = (data.coleccion || []).filter(c => c.owner_id === user?.id || myProfile?.role === "superuser");
+          const active = myCol.filter(c => c.status === "En colección");
+          const totalPurchase = active.reduce((s, c) => s + (Number(c.purchase_price) || 0), 0);
+          const totalCurrent = active.reduce((s, c) => s + (Number(c.current_value) || Number(c.purchase_price) || 0), 0);
+          const totalInsured = active.reduce((s, c) => s + (Number(c.insured_value) || 0), 0);
+          const gainLoss = totalCurrent - totalPurchase;
+          const gainPct = totalPurchase > 0 ? ((gainLoss / totalPurchase) * 100).toFixed(1) : "0.0";
+
+          const hAddCol = async (piece) => {
+            try {
+              const clean = { ...piece, owner_id: user?.id };
+              delete clean._pendingFotos;
+              ["purchase_price","current_value","insured_value"].forEach(k => { clean[k] = Number(clean[k]) || 0; });
+              if (!clean.current_value) clean.current_value = clean.purchase_price;
+              const { error } = await sb.from("coleccion_piezas").insert(clean);
+              if (error) throw error;
+              showToast("Pieza añadida a tu colección");
+              await refresh(); cm();
+            } catch (e) { alert("Error: " + e.message); }
+          };
+
+          const hEditCol = async (piece) => {
+            try {
+              const id = piece.id;
+              const clean = { ...piece };
+              delete clean.id; delete clean._pendingFotos;
+              ["purchase_price","current_value","insured_value"].forEach(k => { clean[k] = Number(clean[k]) || 0; });
+              clean.updated_at = new Date().toISOString();
+              const { error } = await sb.from("coleccion_piezas").update(clean).eq("id", id);
+              if (error) throw error;
+              showToast("Pieza actualizada");
+              await refresh(); cm();
+            } catch (e) { alert("Error: " + e.message); }
+          };
+
+          const hTransferToInv = async (cp) => {
+            if (!confirm(`¿Transferir "${cp.name}" a inventario de venta?\n\nEsto creará una pieza nueva en el inventario comercial. Después podrás definir precio y fuente de financiamiento.`)) return;
+            try {
+              const newId = crypto.randomUUID();
+              const newPiece = { id: newId, name: cp.name, brand: cp.brand, model: cp.model || "", ref: cp.ref || "", serial: cp.serial || "", condition: cp.condition || "Excelente", cost: Number(cp.purchase_price) || 0, status: "Disponible", stage: "inventario", entry_type: "adquisicion", entry_date: td(), fondo_id: "FIC", inversionista_id: user?.id, sku: genSku(data.pieces), notes: `Transferido de Mi Colección (${cp.id})`, dial_color: cp.dial_color || "", bezel_type: cp.bezel_type || "", case_size: cp.case_size || "", strap_type: cp.strap_type || "", ...calcPr(Number(cp.purchase_price) || 0) };
+              await db.savePiece(newPiece, true);
+              await sb.from("coleccion_piezas").update({ status: "Transferido", transferred_to_inventory_id: newId, transferred_at: new Date().toISOString() }).eq("id", cp.id);
+              await sb.from("coleccion_transfers").insert({ pieza_coleccion_id: cp.id, from_user_id: user?.id, transfer_type: "to_inventory", notes: `→ Inventario: ${newPiece.sku}` });
+              showToast(`"${cp.name}" transferida a inventario como ${newPiece.sku}`);
+              await refresh();
+            } catch (e) { alert("Error: " + e.message); }
+          };
+
+          const hShareCode = async (cp) => {
+            try {
+              const code = Math.random().toString(36).slice(2, 10).toUpperCase();
+              const expires = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+              await sb.from("coleccion_piezas").update({ share_code: code, share_expires_at: expires }).eq("id", cp.id);
+              const url = `${window.location.origin}/verify/${code}`;
+              if (navigator.clipboard) { await navigator.clipboard.writeText(`${cp.brand} ${cp.model}\nRef: ${cp.ref || "N/D"} | Serial: ${cp.serial || "N/D"}\nCódigo: ${code}\nVerificar: ${url}\nVálido 72h — The Wrist Room`); showToast("Código copiado al portapapeles"); }
+              else { prompt("Código de validación:", code); }
+              await refresh();
+            } catch (e) { alert("Error: " + e.message); }
+          };
+
+          const hDeleteCol = async (cp) => {
+            if (!confirm(`¿Eliminar "${cp.name}" de tu colección?`)) return;
+            try {
+              await sb.from("coleccion_piezas").delete().eq("id", cp.id);
+              showToast("Pieza eliminada"); await refresh();
+            } catch (e) { alert("Error: " + e.message); }
+          };
+
+          return <div className="space-y-5 au">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <h1 className="fd text-2xl md:text-3xl font-bold text-white">Mi Colección</h1>
+              <BtnP onClick={() => setModal("col_add")} title="Añadir un reloj a tu colección personal"><span className="flex items-center gap-1.5"><Ico d={IC.plus} s={14} />Añadir Pieza</span></BtnP>
+            </div>
+
+            {/* KPIs */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <Cd className="p-4" title="Total de relojes en tu colección activa"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Piezas</div><div className="fd text-2xl font-bold text-white mt-1">{active.length}</div></Cd>
+              <Cd className="p-4" title="Valor total al costo de compra"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Inversión</div><div className="fd text-2xl font-bold mt-1" style={{ color: "var(--bl)" }}>{fmxn(totalPurchase)}</div></Cd>
+              <Cd className="p-4" title="Valor estimado actual de mercado"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Valor Actual</div><div className="fd text-2xl font-bold mt-1 text-white">{fmxn(totalCurrent)}</div></Cd>
+              <Cd className="p-4" title="Plusvalía o minusvalía vs costo de compra"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>+/- Valor</div><div className="fd text-2xl font-bold mt-1" style={{ color: gainLoss >= 0 ? "var(--gn)" : "var(--rd)" }}>{gainLoss >= 0 ? "+" : ""}{fmxn(gainLoss)} <span className="text-sm">({gainPct}%)</span></div></Cd>
+              <Cd className="p-4" title="Valor total asegurado declarado"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Asegurado</div><div className="fd text-2xl font-bold mt-1" style={{ color: "var(--gd)" }}>{totalInsured > 0 ? fmxn(totalInsured) : "Sin declarar"}</div></Cd>
+            </div>
+
+            {/* Collection table */}
+            {active.length === 0 ? (
+              <Cd className="p-10 text-center">
+                <div className="text-4xl mb-3">⌚</div>
+                <div className="fd text-lg font-semibold text-white mb-2">Tu colección está vacía</div>
+                <div className="fb text-sm mb-4" style={{ color: "var(--cd)" }}>Añade tus relojes personales para llevar control de tu patrimonio, valor de mercado y seguros.</div>
+                <BtnP onClick={() => setModal("col_add")}>+ Añadir primer reloj</BtnP>
+              </Cd>
+            ) : (
+              <Cd>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead><tr>
+                      {["Pieza","Ref / Serial","Compra","Valor Actual","Ganancia","Status",""].map(h => <TH key={h}>{h}</TH>)}
+                    </tr></thead>
+                    <tbody>{myCol.map(cp => {
+                      const gain = (Number(cp.current_value) || Number(cp.purchase_price) || 0) - (Number(cp.purchase_price) || 0);
+                      const isActive = cp.status === "En colección";
+                      return <tr key={cp.id} className="hover:bg-white/[.02]" style={!isActive ? { opacity: 0.4 } : {}}>
+                        <TD b><span>{cp.brand} {cp.model}</span> {cp.share_code && <span className="ml-1 text-xs px-1.5 py-0.5 rounded-full" style={{ background: "rgba(37,99,235,.15)", color: "#60A5FA", fontSize: 9 }}>🔗 {cp.share_code}</span>}</TD>
+                        <TD><span className="fb text-xs" style={{ color: "var(--cd)" }}>{cp.ref || "—"} / {cp.serial || "—"}</span></TD>
+                        <TD><span style={{ color: "var(--bl)" }}>{fmxn(cp.purchase_price)}</span><br/><span className="fb text-xs" style={{ color: "var(--cd)" }}>{cp.purchase_date || "—"}</span></TD>
+                        <TD><span className="font-semibold text-white">{fmxn(cp.current_value || cp.purchase_price)}</span></TD>
+                        <TD><span style={{ color: gain >= 0 ? "var(--gn)" : "var(--rd)" }}>{gain >= 0 ? "+" : ""}{fmxn(gain)}</span></TD>
+                        <TD><Bd text={cp.status} v={cp.status === "En colección" ? "green" : cp.status === "Transferido" ? "blue" : cp.status === "Prestado" ? "gold" : cp.status === "En servicio" ? "purple" : "default"} /></TD>
+                        <TD>
+                          {isActive && <div className="flex gap-1">
+                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--cd)" }} onClick={() => { setSel(cp); setModal("col_edit"); }} title="✏️ Editar pieza"><Ico d={IC.edit} s={14} /></button>
+                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--gn)" }} onClick={() => hTransferToInv(cp)} title="📦 Transferir a inventario de venta">📦</button>
+                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--bl)" }} onClick={() => hShareCode(cp)} title="🔗 Generar código de validación para compartir">🔗</button>
+                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }} onClick={() => hDeleteCol(cp)} title="🗑 Eliminar de colección">🗑</button>
+                          </div>}
+                        </TD>
+                      </tr>;
+                    })}</tbody>
+                  </table>
+                </div>
+              </Cd>
+            )}
+
+            {/* Transfer history */}
+            {(data.colTransfers || []).filter(t => t.from_user_id === user?.id || t.to_user_id === user?.id).length > 0 && (
+              <Cd className="p-4">
+                <div className="fb text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--gd)" }}>Historial de Transferencias</div>
+                {(data.colTransfers || []).filter(t => t.from_user_id === user?.id || t.to_user_id === user?.id).slice(0, 10).map(t => (
+                  <div key={t.id} className="flex items-center gap-3 py-2" style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                    <Bd text={t.transfer_type === "to_inventory" ? "→ Inventario" : t.transfer_type === "to_user" ? "→ Usuario" : "← Recibido"} v={t.transfer_type === "to_inventory" ? "blue" : "gold"} />
+                    <span className="fb text-sm" style={{ color: "var(--cr)" }}>{t.notes}</span>
+                    <span className="fb text-xs ml-auto" style={{ color: "var(--cd)" }}>{t.created_at?.slice(0, 10)}</span>
+                  </div>
+                ))}
+              </Cd>
+            )}
+          </div>;
+        })()}
 
         {/* ═══ TRANSACTIONS ═══ */}
         {/* ═══ ESTADO DE CUENTA ═══ */}
@@ -2753,8 +2899,94 @@ export default function App() {
             h += `</tbody></table><div class="ft">The Wrist Room · Mérida, Yucatán · ${pl}</div></body></html>`;
             const w = window.open("","_blank"); w.document.write(h); w.document.close(); setTimeout(() => w.print(), 500);
           };
+          const exportExcel = async () => {
+            try {
+              showToast("Generando Excel...");
+              // Load SheetJS dynamically if not loaded
+              if (!window.XLSX) {
+                await new Promise((resolve, reject) => {
+                  const s = document.createElement("script");
+                  s.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+                  s.onload = resolve; s.onerror = reject;
+                  document.head.appendChild(s);
+                });
+              }
+              const X = window.XLSX;
+              const wb = X.utils.book_new();
+              const fl = activeInv === "ALL" ? "Todos" : (invInfo[activeInv]?.short || activeInv);
+              const pl = txFrom && txTo ? `${txFrom} al ${txTo}` : "Histórico";
+
+              // ═══ SHEET 1: Estado de Cuenta ═══
+              const s1Data = [["THE WRIST ROOM — Estado de Cuenta"],[`Periodo: ${pl} | Fondo: ${fl}`],[],
+                ["#","Fecha","Tipo","Descripción","Entrada","Salida","Saldo"]];
+              let rn = cI; let idx = 0;
+              fil.forEach(t => { idx++; rn += (t.monto||0);
+                s1Data.push([idx, t.fecha, txL(t.tipo), (t.descripcion||"").slice(0,80), t.monto >= 0 ? Number(t.monto) : null, t.monto < 0 ? Math.abs(Number(t.monto)) : null, rn]);
+              });
+              s1Data.push([]);
+              const capT = fil.filter(t=>t.tipo==="CAPITAL").reduce((s,t)=>s+(t.monto||0),0);
+              const buyT = Math.abs(fil.filter(t=>t.tipo==="BUY").reduce((s,t)=>s+(t.monto||0),0));
+              const sellT = fil.filter(t=>t.tipo==="SELL").reduce((s,t)=>s+(t.monto||0),0);
+              s1Data.push(["","","","TOTALES", fil.filter(t=>(t.monto||0)>=0).reduce((s,t)=>s+(t.monto||0),0), Math.abs(fil.filter(t=>(t.monto||0)<0).reduce((s,t)=>s+(t.monto||0),0)), rn]);
+              s1Data.push([]);
+              s1Data.push(["","","","RESUMEN RÁPIDO"]);
+              s1Data.push(["","","","Capital invertido:", capT]);
+              s1Data.push(["","","","Total compras:", buyT]);
+              s1Data.push(["","","","Total ventas:", sellT]);
+              s1Data.push(["","","","Cash final:", rn]);
+              const ws1 = X.utils.aoa_to_sheet(s1Data);
+              ws1["!cols"] = [{wch:4},{wch:12},{wch:12},{wch:55},{wch:14},{wch:14},{wch:14}];
+              X.utils.book_append_sheet(wb, ws1, "Estado de Cuenta");
+
+              // ═══ SHEET 2: Inventario ═══
+              const allP = data.pieces || [];
+              const s2Data = [["THE WRIST ROOM — Inventario de Piezas"],[`${allP.length} piezas | ${allP.filter(p=>p.status==="Disponible").length} en inventario`],[],
+                ["#","Fecha","SKU","Pieza","Marca","Ref","Serial","Costo","Venta","Utilidad","Status","Motivo"]];
+              allP.sort((a,b) => (a.entry_date||"") > (b.entry_date||"") ? 1 : -1).forEach((p,i) => {
+                const sellTx = (data.txs||[]).find(t => t.pieza_id === p.id && t.tipo === "SELL");
+                const sellAmt = sellTx ? Number(sellTx.monto) : null;
+                const util = sellAmt ? sellAmt - Number(p.cost) : null;
+                const statusLabel = p.status === "Vendido" && p.exit_type === "trade_out" ? "Trade Out" : p.status === "Vendido" ? "Vendido ✓" : p.status;
+                s2Data.push([i+1, p.entry_date, p.sku, p.name, p.brand, p.ref||"N/D", p.serial||"N/D", Number(p.cost), sellAmt, util, statusLabel, p.entry_type === "trade_in" ? "Trade-in" : "Adquisición"]);
+              });
+              s2Data.push([]);
+              s2Data.push(["","","","","","","","=SUM(H5:H"+(4+allP.length)+")","=SUM(I5:I"+(4+allP.length)+")","=SUM(J5:J"+(4+allP.length)+")"]);
+              const ws2 = X.utils.aoa_to_sheet(s2Data);
+              ws2["!cols"] = [{wch:4},{wch:12},{wch:16},{wch:28},{wch:12},{wch:18},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14}];
+              X.utils.book_append_sheet(wb, ws2, "Inventario");
+
+              // ═══ SHEET 3: Resumen Financiero ═══
+              const invC = allP.filter(p=>p.status==="Disponible").reduce((s,p)=>s+Number(p.cost||0),0);
+              const retC = Math.abs((data.txs||[]).filter(t=>t.tipo==="RETIRO_CAPITAL").reduce((s,t)=>s+(t.monto||0),0));
+              const invNeta = capT - retC;
+              const s3Data = [["THE WRIST ROOM — Resumen Financiero"],[`Al ${new Date().toLocaleDateString("es-MX")}`],[],
+                ["CONCEPTO","MONTO","NOTA"],[],
+                ["CAPITAL"],
+                ...([["Capital Bulgari",180000,"16 Feb"],["Capital Omega AT",80000,"16 Feb"],["Cash (ADLC+Tag)",150000,"19 Feb"],["Venta mi Cartier",95000,"19 Feb"],["Miami",100000,"5 Mar"]].map(r=>[r[0],r[1],r[2]])),
+                ["Total Capital Invertido", capT, ""],
+                ["(-) Retiro de Capital", retC, "13 Mar"],
+                ["Inversión Neta", invNeta, "Capital - Retiros"],[],
+                ["ESTADO ACTUAL"],
+                ["Cash en fondo", rn, "Saldo corrido"],
+                ["Inventario (piezas)", invC, `${allP.filter(p=>p.status==="Disponible").length} pieza(s)`],
+                ["NAV (Valor Total)", rn + invC, "Cash + Inventario"],[],
+                ["UTILIDAD"],
+                ["Utilidad por ventas", uP, "Ventas a clientes"],
+                ["Fernando 40%", Math.round(uP * 0.4), ""],
+                ["Operadores 60%", Math.round(uP * 0.6), ""],
+                ["MOIC", ((rn + invC + retC) / (capT || 1)), "(NAV + Retiros) / Capital"]
+              ];
+              const ws3 = X.utils.aoa_to_sheet(s3Data);
+              ws3["!cols"] = [{wch:30},{wch:18},{wch:25}];
+              X.utils.book_append_sheet(wb, ws3, "Resumen");
+
+              const fileName = `TWR_Estado_${txFrom || "hist"}_${txTo || new Date().toISOString().slice(0,10)}.xlsx`;
+              X.writeFile(wb, fileName);
+              showToast("Excel descargado: " + fileName);
+            } catch (e) { alert("Error generando Excel: " + e.message); console.error(e); }
+          };
           return <div className="space-y-5 au">
-            <div className="flex items-center justify-between flex-wrap gap-3"><h1 className="fd text-2xl md:text-3xl font-bold text-white">Estado de Cuenta</h1><div className="flex gap-2"><button onClick={exportPDF} className="fb text-xs px-4 py-2.5 rounded-xl font-semibold" style={{ background: "rgba(201,169,110,.15)", color: "var(--cr)", border: "1px solid rgba(201,169,110,.2)" }}>📄 PDF</button><BtnS onClick={() => setModal("ac")}>+ Capital</BtnS><BtnS onClick={() => setModal("rc")}>↑ Retiro</BtnS></div></div>
+            <div className="flex items-center justify-between flex-wrap gap-3"><h1 className="fd text-2xl md:text-3xl font-bold text-white">Estado de Cuenta</h1><div className="flex gap-2"><button onClick={exportExcel} className="fb text-xs px-4 py-2.5 rounded-xl font-semibold" style={{ background: "rgba(22,163,74,.12)", color: "#4ADE80", border: "1px solid rgba(22,163,74,.2)" }} title="Exportar a Excel con 3 hojas: Estado de Cuenta, Inventario, Resumen">📊 Excel</button><button onClick={exportPDF} className="fb text-xs px-4 py-2.5 rounded-xl font-semibold" style={{ background: "rgba(201,169,110,.15)", color: "var(--cr)", border: "1px solid rgba(201,169,110,.2)" }} title="Exportar estado de cuenta a PDF para imprimir o compartir">📄 PDF</button><BtnS onClick={() => setModal("ac")} title="Inyectar capital al fondo del inversionista">+ Capital</BtnS><BtnS onClick={() => setModal("rc")} title="Retirar capital del fondo">↑ Retiro</BtnS></div></div>
             <div className="flex gap-3 items-end flex-wrap">
               <Fl label="Desde"><input type="date" className="ti" value={txFrom} onChange={e => setTxFrom(e.target.value)} style={{ fontSize: 12, padding: "6px 10px" }} /></Fl>
               <Fl label="Hasta"><input type="date" className="ti" value={txTo} onChange={e => setTxTo(e.target.value)} style={{ fontSize: 12, padding: "6px 10px" }} /></Fl>
@@ -2780,7 +3012,7 @@ export default function App() {
             </Cd>
             <Cd><div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}><span className="fb text-xs font-bold" style={{ color: "var(--cd)" }}>Detalle ({fil.length}) — más recientes primero</span></div><div className="overflow-x-auto"><table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH r>Saldo</TH><TH>Acción</TH></tr></thead>
               <tbody>{(() => { let rn = cI; const rows = fil.map(t => { rn += (t.monto || 0); return { ...t, _saldo: rn }; }); return rows.slice().reverse().map(t => { const isR = t.tipo === "RETIRO" || t.tipo === "RETIRO_CAPITAL"; const cx = cIds.has(t.id);
-                return <tr key={t.id} className="hover:bg-white/[.02] cursor-pointer" style={cx ? { opacity: 0.4 } : {}} onDoubleClick={() => setEditTx(t)}><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD><TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD><TD><Bd text={invInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD><TD r><span className="fb text-xs" style={{ color: "var(--cd)" }}>{fmxn(t._saldo)}</span></TD><TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }}>↩</button>}{!cx && <button onClick={() => setEditTx(t)} className="p-1 rounded-lg hover:bg-white/5 ml-1" style={{ color: "var(--cd)" }} title="Editar transacción">✏️</button>}</TD></tr>; }); })()}</tbody>
+                return <tr key={t.id} className="hover:bg-white/[.02] cursor-pointer" style={cx ? { opacity: 0.4 } : {}} onDoubleClick={() => setEditTx(t)}><TD><span className="text-xs" style={{ color: "var(--cd)" }}>{t.fecha}</span></TD><TD><Bd text={txL(t.tipo)} v={txC(t.tipo)} /></TD><TD><span style={cx ? { textDecoration: "line-through" } : {}}>{t.descripcion}</span>{cx && <span className="fb text-xs ml-1" style={{ color: "var(--rd)" }}>cancelado</span>}</TD><TD><Bd text={invInfo[t.fondo_id]?.short || t.fondo_id || "—"} v="blue" /></TD><TD r a={(t.monto || 0) >= 0 ? "var(--gn)" : "var(--rd)"}>{(t.monto || 0) >= 0 ? "+" : ""}{fmxn(t.monto)}</TD><TD r><span className="fb text-xs" style={{ color: "var(--cd)" }}>{fmxn(t._saldo)}</span></TD><TD>{isR && !cx && <button onClick={() => hCancelRetiro(t)} className="fb text-xs px-2 py-1 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }} title="↩ Cancelar retiro — reversa este movimiento y regresa el dinero al fondo">↩</button>}{!cx && <button onClick={() => setEditTx(t)} className="p-1 rounded-lg hover:bg-white/5 ml-1" style={{ color: "var(--cd)" }} title="✏️ Editar transacción — doble click también funciona">✏️</button>}</TD></tr>; }); })()}</tbody>
             </table></div></Cd>
           </div>;
         })()}
@@ -2847,6 +3079,8 @@ export default function App() {
       <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? "FIC" : activeInv} txs={data.txs} />}</Md>
       <Md open={modal === "rc"} onClose={cm} title="Retiro de Capital">{<RetiroCapitalForm onSave={hRetiro} onClose={cm} socios={data.socios} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? "FIC" : activeInv} txs={data.txs} />}</Md>
       <Md open={!!editTx} onClose={() => setEditTx(null)} title={"Editar Transacción — " + (editTx?.tipo || "")}>{editTx && <TxEditForm tx={editTx} onSave={hUpdateTx} onClose={() => setEditTx(null)} />}</Md>
+      <Md open={modal === "col_add"} onClose={cm} title="Añadir a Mi Colección" wide><ColForm onSave={async (p) => { const clean = { ...p, owner_id: user?.id }; delete clean._pendingFotos; ["purchase_price","current_value","insured_value"].forEach(k => { clean[k] = Number(clean[k]) || 0; }); if (!clean.current_value) clean.current_value = clean.purchase_price; const { error } = await sb.from("coleccion_piezas").insert(clean); if (error) throw error; showToast("Pieza añadida a tu colección"); await refresh(); cm(); }} onClose={cm} allPieces={data.pieces} /></Md>
+      <Md open={modal === "col_edit"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <ColForm piece={sel} onSave={async (p) => { const id = p.id; const clean = { ...p }; delete clean.id; delete clean._pendingFotos; ["purchase_price","current_value","insured_value"].forEach(k => { clean[k] = Number(clean[k]) || 0; }); clean.updated_at = new Date().toISOString(); const { error } = await sb.from("coleccion_piezas").update(clean).eq("id", id); if (error) throw error; showToast("Pieza actualizada"); await refresh(); cm(); }} onClose={cm} allPieces={data.pieces} />}</Md>
 
       {/* Post-Devolution Action Panel */}
       <Md open={modal === "post_dev"} onClose={cm} title="Pieza Devuelta — ¿Qué hacer?">
@@ -3115,6 +3349,70 @@ function CatalogsSection({ data, refresh, showToast, db }) {
       )}
     </div>
   );
+}
+
+/* ═══ COLLECTION FORM ═══ */
+function ColForm({ piece, onSave, onClose, allPieces }) {
+  const blank = { name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", purchase_price: 0, purchase_date: td(), purchase_from: "", current_value: 0, insured_value: 0, dial_color: "", bezel_type: "", case_size: "", strap_type: "", notes: "", status: "En colección" };
+  const [f, sF] = useState(piece ? { ...blank, ...piece } : blank);
+  const [saving, setSaving] = useState(false);
+  const u = (k, v) => sF(p => ({ ...p, [k]: v }));
+  const brands = useMemo(() => {
+    const set = new Set((allPieces || []).map(p => p.brand).filter(Boolean));
+    ["Rolex","Omega","Cartier","TAG Heuer","Hublot","Bulgari","Patek Philippe","Audemars Piguet","IWC","Panerai","Breitling","Tudor","Zenith","Jaeger-LeCoultre","Vacheron Constantin"].forEach(b => set.add(b));
+    return [...set].sort();
+  }, [allPieces]);
+  const handleBrand = (b) => { u("brand", b); if (!f.name || f.name === `${f.brand} ${f.model}`) u("name", `${b} ${f.model || ""}`.trim()); };
+  const handleModel = (m) => { u("model", m); if (!f.name || f.name === `${f.brand} ${f.model}`) u("name", `${f.brand} ${m}`.trim()); };
+  const gain = (Number(f.current_value) || Number(f.purchase_price) || 0) - (Number(f.purchase_price) || 0);
+
+  return <div className="space-y-4">
+    {/* Brand & Model */}
+    <div className="grid grid-cols-2 gap-3">
+      <Fl label="Marca" req><select className="ti" value={f.brand} onChange={e => handleBrand(e.target.value)}><option value="">— Seleccionar —</option>{brands.map(b => <option key={b} value={b}>{b}</option>)}</select></Fl>
+      <Fl label="Modelo"><input className="ti" value={f.model} onChange={e => handleModel(e.target.value)} placeholder="Submariner, Seamaster..." /></Fl>
+    </div>
+    <Fl label="Nombre de la pieza"><input className="ti" value={f.name} onChange={e => u("name", e.target.value)} placeholder="Se genera automáticamente" /></Fl>
+    <div className="grid grid-cols-2 gap-3">
+      <Fl label="Referencia"><input className="ti" value={f.ref} onChange={e => u("ref", e.target.value)} placeholder="116610LN" /></Fl>
+      <Fl label="Número de Serie"><input className="ti" value={f.serial} onChange={e => u("serial", e.target.value)} placeholder="ABC123..." /></Fl>
+    </div>
+    <div className="grid grid-cols-2 gap-3">
+      <Fl label="Condición"><select className="ti" value={f.condition} onChange={e => u("condition", e.target.value)}>{["Nuevo","Excelente","Muy Bueno","Bueno","Regular","En servicio"].map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
+      <Fl label="Comprado a"><input className="ti" value={f.purchase_from} onChange={e => u("purchase_from", e.target.value)} placeholder="AD, dealer, particular..." /></Fl>
+    </div>
+
+    {/* Financials */}
+    <Cd className="p-4 space-y-3" style={{ borderColor: "rgba(201,169,110,.15)" }}>
+      <div className="fb text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--gd)" }}>💰 Información Financiera</div>
+      <div className="grid grid-cols-2 gap-3">
+        <Fl label="Precio de Compra"><input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={f.purchase_price || ""} onChange={e => { u("purchase_price", e.target.value); if (!f.current_value) u("current_value", e.target.value); }} placeholder="0" /></Fl>
+        <Fl label="Fecha de Compra"><input type="date" className="ti" value={f.purchase_date || ""} onChange={e => u("purchase_date", e.target.value)} /></Fl>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Fl label="Valor Actual de Mercado" hint="Estimado"><input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={f.current_value || ""} onChange={e => u("current_value", e.target.value)} placeholder="0" /></Fl>
+        <Fl label="Valor Asegurado" hint="Declarado en póliza"><input type="number" className="ti" value={f.insured_value || ""} onChange={e => u("insured_value", e.target.value)} placeholder="0" /></Fl>
+      </div>
+      {Number(f.purchase_price) > 0 && <div className="flex justify-center gap-6 p-3 rounded-xl" style={{ background: "rgba(201,169,110,.05)", border: "1px solid rgba(201,169,110,.1)" }}>
+        <div className="text-center"><div className="fb text-xs" style={{ color: "var(--cd)" }}>Compra</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>{fmxn(f.purchase_price)}</div></div>
+        <div className="text-center"><div className="fb text-xs" style={{ color: "var(--cd)" }}>Actual</div><div className="fd font-bold text-white">{fmxn(f.current_value || f.purchase_price)}</div></div>
+        <div className="text-center"><div className="fb text-xs" style={{ color: "var(--cd)" }}>+/-</div><div className="fd font-bold" style={{ color: gain >= 0 ? "var(--gn)" : "var(--rd)" }}>{gain >= 0 ? "+" : ""}{fmxn(gain)}</div></div>
+      </div>}
+    </Cd>
+
+    <Fl label="Notas"><textarea className="ti" rows={2} value={f.notes} onChange={e => u("notes", e.target.value)} placeholder="Box, papers, warranty, servicio..." /></Fl>
+
+    {/* Footer bar */}
+    {f.brand && <div className="p-3 rounded-xl flex items-center gap-3 flex-wrap" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.1)" }}>
+      <span className="fb text-sm font-semibold" style={{ color: "var(--gd)" }}>{f.brand} {f.model}</span>
+      {f.ref && <span className="fb text-xs" style={{ color: "var(--cd)" }}>Ref: {f.ref}</span>}
+      {Number(f.purchase_price) > 0 && <span className="fb text-xs font-bold" style={{ color: "var(--gn)" }}>{fmxn(f.purchase_price)}</span>}
+    </div>}
+    <div className="flex gap-3">
+      <BtnP onClick={async () => { if (saving) return; if (!f.brand) { alert("Selecciona una marca"); return; } setSaving(true); try { await onSave(f); } catch(e) { alert("Error: " + e.message); } finally { setSaving(false); } }} disabled={saving}>{saving ? "Guardando..." : piece ? "Actualizar" : "Añadir a Colección"}</BtnP>
+      <BtnS onClick={onClose}>Cancelar</BtnS>
+    </div>
+  </div>;
 }
 
 /* ═══ TX EDIT FORM ═══ */
