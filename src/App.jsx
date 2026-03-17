@@ -47,7 +47,7 @@ const stor = {
 /* ═══ DB LAYER ═══ */
 const db = {
   async loadAll() {
-    const [pz, tx, ct, fo, cl, su, st, cr, sc, pr, cp, fn, col, ctr] = await Promise.all([
+    const [pz, tx, ct, fo, cl, su, st, cr, sc, pr, cp, fn] = await Promise.all([
       sb.from("piezas").select("*").order("created_at", { ascending: false }),
       sb.from("transacciones").select("*").order("fecha", { ascending: false }).order("created_at", { ascending: false }),
       sb.from("cortes").select("*").order("periodo", { ascending: false }),
@@ -60,8 +60,6 @@ const db = {
       sb.from("profiles").select("*").order("name"),
       sb.from("costos_pieza").select("*"),
       sb.from("fondos").select("*").eq("activo", true),
-      sb.from("coleccion_piezas").select("*").order("created_at", { ascending: false }),
-      sb.from("coleccion_transfers").select("*").order("created_at", { ascending: false }),
     ]);
     return {
       pieces: pz.data || [], txs: tx.data || [], cortes: ct.data || [],
@@ -72,8 +70,6 @@ const db = {
       profiles: pr.data || [],
       costos: cp.data || [],
       fondos: fn.data || [],
-      coleccion: col.data || [],
-      colTransfers: ctr.data || [],
     };
   },
   async loadDocs(entType, entId) {
@@ -1008,10 +1004,11 @@ function LoginScreen({ onLogin }) {
 /* ═══════════════════════════════════════════════════════════════════
    PIECE FORM — Full form with photos, docs, custom refs
    ═══════════════════════════════════════════════════════════════════ */
-function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier, userRole, invInfo: fi, myInvs, defaultFund, txs: txsProp, investors: investorsProp }) {
+function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier, userRole, invInfo: fi, myInvs, defaultFund, txs: txsProp, investors: investorsProp, mode: formMode }) {
+  const isCol = formMode === "coleccion";
   const invInfo = fi || {};
   const autoSku = piece?.sku || genSku(allPieces);
-  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", inversionista_id: defaultFund || null, entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "", metodo_pago: "Efectivo MXN", whatsapp_pieza: "", es_referenciada: false, referenciada_por: "", referenciada_comision: 0 };
+  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", inversionista_id: defaultFund || null, entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "", metodo_pago: "Efectivo MXN", whatsapp_pieza: "", es_referenciada: false, referenciada_por: "", referenciada_comision: 0, tipo_pieza: isCol ? "coleccion" : "inventario", purchase_from: "", current_value: 0, insured_value: 0, col_status: isCol ? "En colección" : null };
   const [f, sF] = useState(piece ? { ...blank, ...piece } : blank);
   const [localFotos, setLocalFotos] = useState(fotosProp || []);
   const [combinedFin, setCombinedFin] = useState(false);
@@ -1056,8 +1053,8 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
     { id: "id", l: "Reloj", icon: "🔍" },
     { id: "detail", l: "Detalles", icon: "📋" },
     { id: "photos", l: "Fotos", icon: "📸", count: localFotos.filter(ft => !ft.deleted_at).length },
-    { id: "money", l: "Adquisición", icon: "💰" },
-    ...(piece ? [{ id: "costos", l: "Gastos", icon: "🧾", count: costosData.length }] : []),
+    { id: "money", l: isCol ? "Compra" : "Adquisición", icon: "💰" },
+    ...(piece && !isCol ? [{ id: "costos", l: "Gastos", icon: "🧾", count: costosData.length }] : []),
   ];
 
   return (
@@ -1126,8 +1123,45 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
             </label>
           </div>
 
-          {/* Catalog + Referenciada */}
+          {/* Mode-specific options */}
+          {isCol ? (
+            <div className="rounded-xl p-4 space-y-3" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+              <div className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gd)" }}>⌚ Opciones de Colección</div>
+              <div className="grid grid-cols-2 gap-3">
+                <Fl label="Status en colección"><select className="ti" value={f.col_status || "En colección"} onChange={e => u("col_status", e.target.value)}>{["En colección","Prestado","En servicio"].map(s => <option key={s} value={s}>{s}</option>)}</select></Fl>
+                <Fl label="Valor Asegurado" hint="Declarado en póliza"><input type="number" className="ti" value={f.insured_value || ""} onChange={e => u("insured_value", Number(e.target.value))} placeholder="0" /></Fl>
+              </div>
+              <Fl label="Valor Actual de Mercado" hint="Estimación para control patrimonial"><input type="number" className="ti" value={f.current_value || ""} onChange={e => u("current_value", Number(e.target.value))} placeholder="0" /></Fl>
+              <Fl label="Comprado a"><input className="ti" value={f.purchase_from || ""} onChange={e => u("purchase_from", e.target.value)} placeholder="AD, dealer, particular, herencia..." /></Fl>
+            </div>
+          ) : (
           <div className="rounded-xl p-4 space-y-3" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+            {/* ═══ COLLECTION MODE: transfer to inventory ═══ */}
+            {isCol && piece && piece.tipo_pieza === "coleccion" && Number(piece.cost) > 0 && (
+              <div className="space-y-2">
+                <div className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gd)" }}>📦 Acciones de Colección</div>
+                <div className="fb text-xs" style={{ color: "var(--cd)" }}>Esta pieza está en tu colección personal. Puedes enviarla al inventario de venta cuando quieras.</div>
+                <button type="button" onClick={async () => {
+                  const c = Number(piece.cost);
+                  if (!confirm(`¿Enviar "${piece.name}" al inventario de venta?\n\nSe transferirá con precios automáticos:\n• Costo: ${fmxn(c)}\n• Dealer +8%: ${fmxn(Math.round(c*1.08))}\n• Lista +15%: ${fmxn(Math.round(c*1.15))}\n• Trade +20%: ${fmxn(Math.round(c*1.2))}\n\nFuente: Nueva Aportación (se inyecta capital automáticamente)`)) return;
+                  try {
+                    const up = { tipo_pieza: "inventario", col_status: "Transferido", ...calcPr(c), entry_type: "adquisicion", publish_catalog: false, stage: "inventario" };
+                    const id = piece.id; delete up.id;
+                    await sb.from("piezas").update(up).eq("id", id);
+                    alert(`✅ "${piece.name}" transferida a inventario de venta`);
+                    onClose(); 
+                  } catch(e) { alert("Error: " + e.message); }
+                }} className="w-full fb text-sm px-4 py-3 rounded-xl font-semibold flex items-center justify-center gap-2" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)", border: "1px solid rgba(74,222,128,.15)" }}>
+                  📦 Enviar a Inventario de Venta
+                </button>
+              </div>
+            )}
+            {isCol && (!piece || !Number(piece?.cost)) && (
+              <div className="fb text-xs p-3 rounded-lg" style={{ background: "rgba(251,191,36,.06)", color: "#FBBF24" }}>💡 Define el precio de compra en la pestaña "Compra" para poder enviar esta pieza al inventario.</div>
+            )}
+
+            {/* ═══ INVENTORY MODE: catalog & referenciada ═══ */}
+            {!isCol && (<>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={f.publish_catalog || false} onChange={e => u("publish_catalog", e.target.checked)} className="w-4 h-4 rounded" />
               <span className="fb text-sm font-medium text-white">Publicar en catálogo público</span>
@@ -1154,7 +1188,9 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                 )}
               </>
             )}
+            </>)}
           </div>
+          )}
 
           <Fl label="Notas internas"><textarea className="ti" rows={2} value={f.notes || ""} onChange={e => u("notes", e.target.value)} /></Fl>
         </div>
@@ -1171,9 +1207,42 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
         </div>
       )}
 
-      {/* ═══ TAB: ADQUISICIÓN ═══ */}
+      {/* ═══ TAB: ADQUISICIÓN / COMPRA ═══ */}
       {tab === "money" && (
         <div className="space-y-4 au">
+          {/* ═══ COLLECTION MODE ═══ */}
+          {isCol && (<>
+            <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
+              <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Información de Compra</div>
+              <div className="grid grid-cols-2 gap-3">
+                <Fl label="Comprado a"><input className="ti" value={f.purchase_from || ""} onChange={e => u("purchase_from", e.target.value)} placeholder="AD, dealer, particular, herencia..." /></Fl>
+                <Fl label="Fecha de Compra" req><input type="date" className="ti" value={f.entry_date} onChange={e => u("entry_date", e.target.value)} /></Fl>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <Fl label="Método de Pago"><select className="ti" value={f.metodo_pago || "Efectivo MXN"} onChange={e => u("metodo_pago", e.target.value)}>{PAYS.filter(p => p !== "Trade" && p !== "Trade+Cash").map(p => <option key={p} value={p}>{p}</option>)}</select></Fl>
+                <Fl label="Condición al comprar"><select className="ti" value={f.condition} onChange={e => u("condition", e.target.value)}>{["Nuevo (Unworn)","Excelente","Muy Bueno","Bueno","Regular","Necesita servicio"].map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
+              </div>
+            </div>
+            <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.12)" }}>
+              <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>💰 Valoración</div>
+              <Fl label="Precio de Compra (MXN)" req>
+                <input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={f.cost || ""} onChange={e => { const n = Number(e.target.value); u("cost", n); if (!f.current_value) u("current_value", n); }} placeholder="0" />
+              </Fl>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <Fl label="Valor Actual de Mercado" hint="Estimado"><input type="number" className="ti" style={{ fontSize: 16, fontWeight: 600 }} value={f.current_value || ""} onChange={e => u("current_value", Number(e.target.value))} placeholder="0" /></Fl>
+                <Fl label="Valor Asegurado" hint="Declarado en póliza"><input type="number" className="ti" value={f.insured_value || ""} onChange={e => u("insured_value", Number(e.target.value))} placeholder="0" /></Fl>
+              </div>
+              {Number(f.cost) > 0 && (() => { const cv = Number(f.current_value) || Number(f.cost); const gain = cv - Number(f.cost); const pct = ((gain / Number(f.cost)) * 100).toFixed(1); return (
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center p-3 rounded-xl" style={{ background: "rgba(201,169,110,.05)", border: "1px solid rgba(201,169,110,.1)" }}>
+                  <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Compra</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>{fmxn(f.cost)}</div></div>
+                  <div><div className="fb text-xs" style={{ color: "var(--cr)" }}>Valor Actual</div><div className="fd font-bold text-white">{fmxn(cv)}</div></div>
+                  <div><div className="fb text-xs" style={{ color: gain >= 0 ? "var(--gn)" : "var(--rd)" }}>+/- Valor</div><div className="fd font-bold" style={{ color: gain >= 0 ? "var(--gn)" : "var(--rd)" }}>{gain >= 0 ? "+" : ""}{fmxn(gain)} ({pct}%)</div></div>
+                </div>
+              ); })()}
+            </div>
+          </>)}
+          {/* ═══ INVENTORY MODE ═══ */}
+          {!isCol && (<>
           {/* Proveedor */}
           <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
             <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Proveedor / Vendedor</div>
@@ -1268,6 +1337,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
               <Fl label="Trade +20%"><input type="number" className="ti" value={f.price_trade || ""} onChange={e => u("price_trade", Number(e.target.value))} /></Fl>
             </div>
           </div>
+          </>)}
         </div>
       )}
 
@@ -1385,7 +1455,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
             if (!piece && !f.brand) { alert("Selecciona una marca"); return; }
             setSaving(true);
             try { await onSave({ ...f, _newCapital: combinedFin ? (Number(f.cost) || 0) : 0, _pendingFotos: localFotos.filter(ft => ft._pending) }); } catch(e) { alert("Error: " + e.message); } finally { setSaving(false); }
-          }} disabled={saving}>{saving ? "Guardando..." : "Guardar Pieza"}</BtnP>
+          }} disabled={saving}>{saving ? "Guardando..." : isCol ? (piece ? "Actualizar" : "Añadir a Colección") : "Guardar Pieza"}</BtnP>
           <BtnS onClick={onClose}>Cancelar</BtnS>
         </div>
       </div>
@@ -2001,7 +2071,7 @@ export default function App() {
 
   const comp = useMemo(() => {
     if (!data) return {};
-    const ps = data.pieces || [];
+    const ps = (data.pieces || []).filter(p => p.tipo_pieza !== "coleccion");
     const txs = data.txs || [];
     const af = activeInv;
 
@@ -2050,6 +2120,7 @@ export default function App() {
     if (!data) return [];
     const s = q.toLowerCase();
     const filtered = (data.pieces || []).filter(p => {
+      if (p.tipo_pieza === "coleccion") return false;
       if (activeInv !== "ALL" && p.inversionista_id !== activeInv) return false;
       return !s || (p.name || "").toLowerCase().includes(s) || (p.brand || "").toLowerCase().includes(s) || (p.sku || "").toLowerCase().includes(s) || (p.ref || "").toLowerCase().includes(s);
     });
@@ -2697,50 +2768,20 @@ export default function App() {
 
         {/* ═══ MI COLECCIÓN ═══ */}
         {page === "coleccion" && (() => {
-          const myCol = (data.coleccion || []).filter(c => c.owner_id === user?.id || myProfile?.role === "superuser");
-          const active = myCol.filter(c => c.status === "En colección");
-          const totalPurchase = active.reduce((s, c) => s + (Number(c.purchase_price) || 0), 0);
-          const totalCurrent = active.reduce((s, c) => s + (Number(c.current_value) || Number(c.purchase_price) || 0), 0);
+          const myCol = (data.pieces || []).filter(c => c.tipo_pieza === "coleccion" && (c.inversionista_id === user?.id || myProfile?.role === "superuser"));
+          const active = myCol.filter(c => c.col_status === "En colección" || (!c.col_status && c.status === "Disponible"));
+          const totalPurchase = active.reduce((s, c) => s + (Number(c.cost) || 0), 0);
+          const totalCurrent = active.reduce((s, c) => s + (Number(c.current_value) || Number(c.cost) || 0), 0);
           const totalInsured = active.reduce((s, c) => s + (Number(c.insured_value) || 0), 0);
           const gainLoss = totalCurrent - totalPurchase;
           const gainPct = totalPurchase > 0 ? ((gainLoss / totalPurchase) * 100).toFixed(1) : "0.0";
 
-          const hAddCol = async (piece) => {
-            try {
-              const clean = { ...piece, owner_id: user?.id };
-              delete clean._pendingFotos;
-              ["purchase_price","current_value","insured_value"].forEach(k => { clean[k] = Number(clean[k]) || 0; });
-              if (!clean.current_value) clean.current_value = clean.purchase_price;
-              const { error } = await sb.from("coleccion_piezas").insert(clean);
-              if (error) throw error;
-              showToast("Pieza añadida a tu colección");
-              await refresh(); cm();
-            } catch (e) { alert("Error: " + e.message); }
-          };
-
-          const hEditCol = async (piece) => {
-            try {
-              const id = piece.id;
-              const clean = { ...piece };
-              delete clean.id; delete clean._pendingFotos;
-              ["purchase_price","current_value","insured_value"].forEach(k => { clean[k] = Number(clean[k]) || 0; });
-              clean.updated_at = new Date().toISOString();
-              const { error } = await sb.from("coleccion_piezas").update(clean).eq("id", id);
-              if (error) throw error;
-              showToast("Pieza actualizada");
-              await refresh(); cm();
-            } catch (e) { alert("Error: " + e.message); }
-          };
-
           const hTransferToInv = async (cp) => {
-            if (!confirm(`¿Transferir "${cp.name}" a inventario de venta?\n\nEsto creará una pieza nueva en el inventario comercial. Después podrás definir precio y fuente de financiamiento.`)) return;
+            if (!confirm(`¿Transferir "${cp.name}" a inventario de venta?\n\nSe moverá automáticamente con precios calculados:\n• Costo: ${fmxn(cp.cost)}\n• Dealer +8%: ${fmxn(Math.round(Number(cp.cost)*1.08))}\n• Lista +15%: ${fmxn(Math.round(Number(cp.cost)*1.15))}\n• Trade +20%: ${fmxn(Math.round(Number(cp.cost)*1.2))}`)) return;
             try {
-              const newId = crypto.randomUUID();
-              const newPiece = { id: newId, name: cp.name, brand: cp.brand, model: cp.model || "", ref: cp.ref || "", serial: cp.serial || "", condition: cp.condition || "Excelente", cost: Number(cp.purchase_price) || 0, status: "Disponible", stage: "inventario", entry_type: "adquisicion", entry_date: td(), fondo_id: "FIC", inversionista_id: user?.id, sku: genSku(data.pieces), notes: `Transferido de Mi Colección (${cp.id})`, dial_color: cp.dial_color || "", bezel_type: cp.bezel_type || "", case_size: cp.case_size || "", strap_type: cp.strap_type || "", ...calcPr(Number(cp.purchase_price) || 0) };
-              await db.savePiece(newPiece, true);
-              await sb.from("coleccion_piezas").update({ status: "Transferido", transferred_to_inventory_id: newId, transferred_at: new Date().toISOString() }).eq("id", cp.id);
-              await sb.from("coleccion_transfers").insert({ pieza_coleccion_id: cp.id, from_user_id: user?.id, transfer_type: "to_inventory", notes: `→ Inventario: ${newPiece.sku}` });
-              showToast(`"${cp.name}" transferida a inventario como ${newPiece.sku}`);
+              const cost = Number(cp.cost) || 0;
+              await sb.from("piezas").update({ tipo_pieza: "inventario", col_status: "Transferido", ...calcPr(cost), entry_type: "adquisicion", status: "Disponible", stage: "inventario" }).eq("id", cp.id);
+              showToast(`"${cp.name}" transferida a inventario`);
               await refresh();
             } catch (e) { alert("Error: " + e.message); }
           };
@@ -2748,20 +2789,10 @@ export default function App() {
           const hShareCode = async (cp) => {
             try {
               const code = Math.random().toString(36).slice(2, 10).toUpperCase();
-              const expires = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
-              await sb.from("coleccion_piezas").update({ share_code: code, share_expires_at: expires }).eq("id", cp.id);
-              const url = `${window.location.origin}/verify/${code}`;
-              if (navigator.clipboard) { await navigator.clipboard.writeText(`${cp.brand} ${cp.model}\nRef: ${cp.ref || "N/D"} | Serial: ${cp.serial || "N/D"}\nCódigo: ${code}\nVerificar: ${url}\nVálido 72h — The Wrist Room`); showToast("Código copiado al portapapeles"); }
-              else { prompt("Código de validación:", code); }
+              await sb.from("piezas").update({ share_code: code, share_expires_at: new Date(Date.now() + 72*60*60*1000).toISOString() }).eq("id", cp.id);
+              const txt = `${cp.brand} ${cp.model}\nRef: ${cp.ref || "N/D"} | S/N: ${cp.serial || "N/D"}\nCódigo: ${code}\nVerificar: ${window.location.origin}/verify/${code}\nVálido 72h — The Wrist Room`;
+              if (navigator.clipboard) { await navigator.clipboard.writeText(txt); showToast("Código copiado al portapapeles"); } else { prompt("Código:", code); }
               await refresh();
-            } catch (e) { alert("Error: " + e.message); }
-          };
-
-          const hDeleteCol = async (cp) => {
-            if (!confirm(`¿Eliminar "${cp.name}" de tu colección?`)) return;
-            try {
-              await sb.from("coleccion_piezas").delete().eq("id", cp.id);
-              showToast("Pieza eliminada"); await refresh();
             } catch (e) { alert("Error: " + e.message); }
           };
 
@@ -2773,14 +2804,13 @@ export default function App() {
 
             {/* KPIs */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <Cd className="p-4" title="Total de relojes en tu colección activa"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Piezas</div><div className="fd text-2xl font-bold text-white mt-1">{active.length}</div></Cd>
-              <Cd className="p-4" title="Valor total al costo de compra"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Inversión</div><div className="fd text-2xl font-bold mt-1" style={{ color: "var(--bl)" }}>{fmxn(totalPurchase)}</div></Cd>
-              <Cd className="p-4" title="Valor estimado actual de mercado"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Valor Actual</div><div className="fd text-2xl font-bold mt-1 text-white">{fmxn(totalCurrent)}</div></Cd>
-              <Cd className="p-4" title="Plusvalía o minusvalía vs costo de compra"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>+/- Valor</div><div className="fd text-2xl font-bold mt-1" style={{ color: gainLoss >= 0 ? "var(--gn)" : "var(--rd)" }}>{gainLoss >= 0 ? "+" : ""}{fmxn(gainLoss)} <span className="text-sm">({gainPct}%)</span></div></Cd>
-              <Cd className="p-4" title="Valor total asegurado declarado"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Asegurado</div><div className="fd text-2xl font-bold mt-1" style={{ color: "var(--gd)" }}>{totalInsured > 0 ? fmxn(totalInsured) : "Sin declarar"}</div></Cd>
+              <Cd className="p-4"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Piezas</div><div className="fd text-2xl font-bold text-white mt-1">{active.length}</div></Cd>
+              <Cd className="p-4"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Inversión</div><div className="fd text-2xl font-bold mt-1" style={{ color: "var(--bl)" }}>{fmxn(totalPurchase)}</div></Cd>
+              <Cd className="p-4"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Valor Actual</div><div className="fd text-2xl font-bold mt-1 text-white">{fmxn(totalCurrent)}</div></Cd>
+              <Cd className="p-4"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>+/- Valor</div><div className="fd text-2xl font-bold mt-1" style={{ color: gainLoss >= 0 ? "var(--gn)" : "var(--rd)" }}>{gainLoss >= 0 ? "+" : ""}{fmxn(gainLoss)} <span className="text-sm">({gainPct}%)</span></div></Cd>
+              <Cd className="p-4"><div className="fb text-xs uppercase tracking-widest" style={{ color: "var(--cd)" }}>Asegurado</div><div className="fd text-2xl font-bold mt-1" style={{ color: "var(--gd)" }}>{totalInsured > 0 ? fmxn(totalInsured) : "Sin declarar"}</div></Cd>
             </div>
 
-            {/* Collection table */}
             {active.length === 0 ? (
               <Cd className="p-10 text-center">
                 <div className="text-4xl mb-3">⌚</div>
@@ -2792,45 +2822,30 @@ export default function App() {
               <Cd>
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead><tr>
-                      {["Pieza","Ref / Serial","Compra","Valor Actual","Ganancia","Status",""].map(h => <TH key={h}>{h}</TH>)}
-                    </tr></thead>
+                    <thead><tr>{["Pieza","Ref / Serial","Compra","Valor Actual","Ganancia","Status",""].map(h => <TH key={h}>{h}</TH>)}</tr></thead>
                     <tbody>{myCol.map(cp => {
-                      const gain = (Number(cp.current_value) || Number(cp.purchase_price) || 0) - (Number(cp.purchase_price) || 0);
-                      const isActive = cp.status === "En colección";
+                      const cv = Number(cp.current_value) || Number(cp.cost) || 0;
+                      const gain = cv - (Number(cp.cost) || 0);
+                      const isActive = cp.col_status === "En colección" || (!cp.col_status && cp.status === "Disponible");
+                      const hasFotos = (data.fotos || []).some(f => f.pieza_id === cp.id);
                       return <tr key={cp.id} className="hover:bg-white/[.02]" style={!isActive ? { opacity: 0.4 } : {}}>
-                        <TD b><span>{cp.brand} {cp.model}</span> {cp.share_code && <span className="ml-1 text-xs px-1.5 py-0.5 rounded-full" style={{ background: "rgba(37,99,235,.15)", color: "#60A5FA", fontSize: 9 }}>🔗 {cp.share_code}</span>}</TD>
+                        <TD b><span>{cp.name}</span> {cp.share_code && <span className="ml-1 text-xs px-1.5 py-0.5 rounded-full" style={{ background: "rgba(37,99,235,.15)", color: "#60A5FA", fontSize: 9 }}>🔗 {cp.share_code}</span>} {!hasFotos && isActive && <span className="ml-1 fb text-xs px-1.5 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,.12)", color: "#FBBF24", fontSize: 10 }}>⚠ Sin fotos</span>}</TD>
                         <TD><span className="fb text-xs" style={{ color: "var(--cd)" }}>{cp.ref || "—"} / {cp.serial || "—"}</span></TD>
-                        <TD><span style={{ color: "var(--bl)" }}>{fmxn(cp.purchase_price)}</span><br/><span className="fb text-xs" style={{ color: "var(--cd)" }}>{cp.purchase_date || "—"}</span></TD>
-                        <TD><span className="font-semibold text-white">{fmxn(cp.current_value || cp.purchase_price)}</span></TD>
+                        <TD><span style={{ color: "var(--bl)" }}>{fmxn(cp.cost)}</span><br/><span className="fb text-xs" style={{ color: "var(--cd)" }}>{cp.entry_date || "—"}</span></TD>
+                        <TD><span className="font-semibold text-white">{fmxn(cv)}</span></TD>
                         <TD><span style={{ color: gain >= 0 ? "var(--gn)" : "var(--rd)" }}>{gain >= 0 ? "+" : ""}{fmxn(gain)}</span></TD>
-                        <TD><Bd text={cp.status} v={cp.status === "En colección" ? "green" : cp.status === "Transferido" ? "blue" : cp.status === "Prestado" ? "gold" : cp.status === "En servicio" ? "purple" : "default"} /></TD>
+                        <TD><Bd text={cp.col_status || cp.status} v={cp.col_status === "En colección" || cp.status === "Disponible" ? "green" : cp.col_status === "Transferido" || cp.tipo_pieza === "inventario" ? "blue" : cp.col_status === "Prestado" ? "gold" : cp.col_status === "En servicio" ? "purple" : "default"} /></TD>
                         <TD>
                           {isActive && <div className="flex gap-1">
                             <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--cd)" }} onClick={() => { setSel(cp); setModal("col_edit"); }} title="✏️ Editar pieza"><Ico d={IC.edit} s={14} /></button>
-                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--gn)" }} onClick={() => hTransferToInv(cp)} title="📦 Transferir a inventario de venta">📦</button>
-                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--bl)" }} onClick={() => hShareCode(cp)} title="🔗 Generar código de validación para compartir">🔗</button>
-                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }} onClick={() => hDeleteCol(cp)} title="🗑 Eliminar de colección">🗑</button>
+                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--gn)" }} onClick={() => hTransferToInv(cp)} title="📦 Transferir a inventario — auto-calcula precios">📦</button>
+                            <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "var(--bl)" }} onClick={() => hShareCode(cp)} title="🔗 Generar código de validación (72h)">🔗</button>
                           </div>}
                         </TD>
                       </tr>;
                     })}</tbody>
                   </table>
                 </div>
-              </Cd>
-            )}
-
-            {/* Transfer history */}
-            {(data.colTransfers || []).filter(t => t.from_user_id === user?.id || t.to_user_id === user?.id).length > 0 && (
-              <Cd className="p-4">
-                <div className="fb text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--gd)" }}>Historial de Transferencias</div>
-                {(data.colTransfers || []).filter(t => t.from_user_id === user?.id || t.to_user_id === user?.id).slice(0, 10).map(t => (
-                  <div key={t.id} className="flex items-center gap-3 py-2" style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
-                    <Bd text={t.transfer_type === "to_inventory" ? "→ Inventario" : t.transfer_type === "to_user" ? "→ Usuario" : "← Recibido"} v={t.transfer_type === "to_inventory" ? "blue" : "gold"} />
-                    <span className="fb text-sm" style={{ color: "var(--cr)" }}>{t.notes}</span>
-                    <span className="fb text-xs ml-auto" style={{ color: "var(--cd)" }}>{t.created_at?.slice(0, 10)}</span>
-                  </div>
-                ))}
               </Cd>
             )}
           </div>;
@@ -2840,7 +2855,7 @@ export default function App() {
         {/* ═══ ESTADO DE CUENTA ═══ */}
         {page === "transactions" && (() => {
           const allTx = (data.txs || []).filter(t => activeInv === "ALL" || t.inversionista_id === activeInv || t.fondo_id === activeInv).sort((a, b) => a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : (a.created_at || "") > (b.created_at || "") ? 1 : (a.created_at || "") < (b.created_at || "") ? -1 : 0);
-          const allPs = (data.pieces || []).filter(p => activeInv === "ALL" || p.fondo_id === activeInv);
+          const allPs = (data.pieces || []).filter(p => p.tipo_pieza !== "coleccion" && (activeInv === "ALL" || p.fondo_id === activeInv));
           const fil = allTx.filter(t => (!txFrom || t.fecha >= txFrom) && (!txTo || t.fecha <= txTo));
           const cIds = new Set(allTx.filter(t => t.tipo === "CANCEL_RETIRO" || t.tipo === "DEVOLUCION" || t.tipo === "CORRECCION").map(t => { const m = (t.descripcion || "").match(/ref: ([^\)]+)/); return m ? m[1] : ""; }).filter(Boolean));
           const socios = data.socios || [], gc = data.costos || [];
@@ -3079,8 +3094,8 @@ export default function App() {
       <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? "FIC" : activeInv} txs={data.txs} />}</Md>
       <Md open={modal === "rc"} onClose={cm} title="Retiro de Capital">{<RetiroCapitalForm onSave={hRetiro} onClose={cm} socios={data.socios} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? "FIC" : activeInv} txs={data.txs} />}</Md>
       <Md open={!!editTx} onClose={() => setEditTx(null)} title={"Editar Transacción — " + (editTx?.tipo || "")}>{editTx && <TxEditForm tx={editTx} onSave={hUpdateTx} onClose={() => setEditTx(null)} />}</Md>
-      <Md open={modal === "col_add"} onClose={cm} title="Añadir a Mi Colección" wide><ColForm onSave={async (p) => { const clean = { ...p, owner_id: user?.id }; delete clean._pendingFotos; ["purchase_price","current_value","insured_value"].forEach(k => { clean[k] = Number(clean[k]) || 0; }); if (!clean.current_value) clean.current_value = clean.purchase_price; const { error } = await sb.from("coleccion_piezas").insert(clean); if (error) throw error; showToast("Pieza añadida a tu colección"); await refresh(); cm(); }} onClose={cm} allPieces={data.pieces} /></Md>
-      <Md open={modal === "col_edit"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <ColForm piece={sel} onSave={async (p) => { const id = p.id; const clean = { ...p }; delete clean.id; delete clean._pendingFotos; ["purchase_price","current_value","insured_value"].forEach(k => { clean[k] = Number(clean[k]) || 0; }); clean.updated_at = new Date().toISOString(); const { error } = await sb.from("coleccion_piezas").update(clean).eq("id", id); if (error) throw error; showToast("Pieza actualizada"); await refresh(); cm(); }} onClose={cm} allPieces={data.pieces} />}</Md>
+      <Md open={modal === "col_add"} onClose={cm} title="Añadir a Mi Colección" wide><PcForm onSave={async (p) => { const clean = { ...p }; delete clean._pendingFotos; delete clean._newCapital; delete clean.metodo_pago; clean.tipo_pieza = "coleccion"; clean.col_status = "En colección"; clean.inversionista_id = user?.id; clean.fondo_id = "FIC"; ["cost","current_value","insured_value","price_dealer","price_asked","price_trade"].forEach(k => { clean[k] = Number(clean[k]) || 0; }); if (!clean.current_value) clean.current_value = clean.cost; ["supplier_id","ref_id","socio_aporta_id","client_id","validated_by","exit_fund","trade_ref","devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); const { error } = await sb.from("piezas").insert(clean); if (error) throw error; showToast("Pieza añadida a tu colección"); await refresh(); cm(); }} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} invInfo={invInfo} myInvs={myInvs} defaultFund={user?.id} txs={data.txs} investors={investors} mode="coleccion" /></Md>
+      <Md open={modal === "col_edit"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={async (p) => { const id = p.id; const clean = { ...p }; delete clean.id; delete clean._pendingFotos; delete clean._newCapital; delete clean.metodo_pago; ["cost","current_value","insured_value","price_dealer","price_asked","price_trade"].forEach(k => { clean[k] = Number(clean[k]) || 0; }); ["supplier_id","ref_id","socio_aporta_id","client_id","validated_by","exit_fund","trade_ref","devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); const { error } = await sb.from("piezas").update(clean).eq("id", id); if (error) throw error; showToast("Pieza actualizada"); await refresh(); cm(); }} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} invInfo={invInfo} myInvs={myInvs} defaultFund={user?.id} txs={data.txs} investors={investors} mode="coleccion" />}</Md>
 
       {/* Post-Devolution Action Panel */}
       <Md open={modal === "post_dev"} onClose={cm} title="Pieza Devuelta — ¿Qué hacer?">
@@ -3349,70 +3364,6 @@ function CatalogsSection({ data, refresh, showToast, db }) {
       )}
     </div>
   );
-}
-
-/* ═══ COLLECTION FORM ═══ */
-function ColForm({ piece, onSave, onClose, allPieces }) {
-  const blank = { name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", purchase_price: 0, purchase_date: td(), purchase_from: "", current_value: 0, insured_value: 0, dial_color: "", bezel_type: "", case_size: "", strap_type: "", notes: "", status: "En colección" };
-  const [f, sF] = useState(piece ? { ...blank, ...piece } : blank);
-  const [saving, setSaving] = useState(false);
-  const u = (k, v) => sF(p => ({ ...p, [k]: v }));
-  const brands = useMemo(() => {
-    const set = new Set((allPieces || []).map(p => p.brand).filter(Boolean));
-    ["Rolex","Omega","Cartier","TAG Heuer","Hublot","Bulgari","Patek Philippe","Audemars Piguet","IWC","Panerai","Breitling","Tudor","Zenith","Jaeger-LeCoultre","Vacheron Constantin"].forEach(b => set.add(b));
-    return [...set].sort();
-  }, [allPieces]);
-  const handleBrand = (b) => { u("brand", b); if (!f.name || f.name === `${f.brand} ${f.model}`) u("name", `${b} ${f.model || ""}`.trim()); };
-  const handleModel = (m) => { u("model", m); if (!f.name || f.name === `${f.brand} ${f.model}`) u("name", `${f.brand} ${m}`.trim()); };
-  const gain = (Number(f.current_value) || Number(f.purchase_price) || 0) - (Number(f.purchase_price) || 0);
-
-  return <div className="space-y-4">
-    {/* Brand & Model */}
-    <div className="grid grid-cols-2 gap-3">
-      <Fl label="Marca" req><select className="ti" value={f.brand} onChange={e => handleBrand(e.target.value)}><option value="">— Seleccionar —</option>{brands.map(b => <option key={b} value={b}>{b}</option>)}</select></Fl>
-      <Fl label="Modelo"><input className="ti" value={f.model} onChange={e => handleModel(e.target.value)} placeholder="Submariner, Seamaster..." /></Fl>
-    </div>
-    <Fl label="Nombre de la pieza"><input className="ti" value={f.name} onChange={e => u("name", e.target.value)} placeholder="Se genera automáticamente" /></Fl>
-    <div className="grid grid-cols-2 gap-3">
-      <Fl label="Referencia"><input className="ti" value={f.ref} onChange={e => u("ref", e.target.value)} placeholder="116610LN" /></Fl>
-      <Fl label="Número de Serie"><input className="ti" value={f.serial} onChange={e => u("serial", e.target.value)} placeholder="ABC123..." /></Fl>
-    </div>
-    <div className="grid grid-cols-2 gap-3">
-      <Fl label="Condición"><select className="ti" value={f.condition} onChange={e => u("condition", e.target.value)}>{["Nuevo","Excelente","Muy Bueno","Bueno","Regular","En servicio"].map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
-      <Fl label="Comprado a"><input className="ti" value={f.purchase_from} onChange={e => u("purchase_from", e.target.value)} placeholder="AD, dealer, particular..." /></Fl>
-    </div>
-
-    {/* Financials */}
-    <Cd className="p-4 space-y-3" style={{ borderColor: "rgba(201,169,110,.15)" }}>
-      <div className="fb text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--gd)" }}>💰 Información Financiera</div>
-      <div className="grid grid-cols-2 gap-3">
-        <Fl label="Precio de Compra"><input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={f.purchase_price || ""} onChange={e => { u("purchase_price", e.target.value); if (!f.current_value) u("current_value", e.target.value); }} placeholder="0" /></Fl>
-        <Fl label="Fecha de Compra"><input type="date" className="ti" value={f.purchase_date || ""} onChange={e => u("purchase_date", e.target.value)} /></Fl>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Fl label="Valor Actual de Mercado" hint="Estimado"><input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={f.current_value || ""} onChange={e => u("current_value", e.target.value)} placeholder="0" /></Fl>
-        <Fl label="Valor Asegurado" hint="Declarado en póliza"><input type="number" className="ti" value={f.insured_value || ""} onChange={e => u("insured_value", e.target.value)} placeholder="0" /></Fl>
-      </div>
-      {Number(f.purchase_price) > 0 && <div className="flex justify-center gap-6 p-3 rounded-xl" style={{ background: "rgba(201,169,110,.05)", border: "1px solid rgba(201,169,110,.1)" }}>
-        <div className="text-center"><div className="fb text-xs" style={{ color: "var(--cd)" }}>Compra</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>{fmxn(f.purchase_price)}</div></div>
-        <div className="text-center"><div className="fb text-xs" style={{ color: "var(--cd)" }}>Actual</div><div className="fd font-bold text-white">{fmxn(f.current_value || f.purchase_price)}</div></div>
-        <div className="text-center"><div className="fb text-xs" style={{ color: "var(--cd)" }}>+/-</div><div className="fd font-bold" style={{ color: gain >= 0 ? "var(--gn)" : "var(--rd)" }}>{gain >= 0 ? "+" : ""}{fmxn(gain)}</div></div>
-      </div>}
-    </Cd>
-
-    <Fl label="Notas"><textarea className="ti" rows={2} value={f.notes} onChange={e => u("notes", e.target.value)} placeholder="Box, papers, warranty, servicio..." /></Fl>
-
-    {/* Footer bar */}
-    {f.brand && <div className="p-3 rounded-xl flex items-center gap-3 flex-wrap" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.1)" }}>
-      <span className="fb text-sm font-semibold" style={{ color: "var(--gd)" }}>{f.brand} {f.model}</span>
-      {f.ref && <span className="fb text-xs" style={{ color: "var(--cd)" }}>Ref: {f.ref}</span>}
-      {Number(f.purchase_price) > 0 && <span className="fb text-xs font-bold" style={{ color: "var(--gn)" }}>{fmxn(f.purchase_price)}</span>}
-    </div>}
-    <div className="flex gap-3">
-      <BtnP onClick={async () => { if (saving) return; if (!f.brand) { alert("Selecciona una marca"); return; } setSaving(true); try { await onSave(f); } catch(e) { alert("Error: " + e.message); } finally { setSaving(false); } }} disabled={saving}>{saving ? "Guardando..." : piece ? "Actualizar" : "Añadir a Colección"}</BtnP>
-      <BtnS onClick={onClose}>Cancelar</BtnS>
-    </div>
-  </div>;
 }
 
 /* ═══ TX EDIT FORM ═══ */
