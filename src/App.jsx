@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createClient } from "@supabase/supabase-js";
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE WRIST ROOM — OPERATING SYSTEM v22 (SUPABASE + CATALOG + AI + MULTI-FUND)
+   MY WATCH VAULT — OPERATING SYSTEM v22 (SUPABASE + CATALOG + AI + MULTI-FUND)
    ═══════════════════════════════════════════════════════════════════ */
 
 const sb = createClient(
@@ -15,7 +15,7 @@ const uid = () => crypto.randomUUID();
 const fmxn = (n) => { if (n == null || isNaN(n)) return "—"; const a = Math.abs(n); return (n < 0 ? "-" : "") + (a >= 1000 ? `$${a.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : `$${a}`); };
 const td = () => new Date().toISOString().slice(0, 10);
 const calcPr = (c) => ({ price_dealer: Math.round(c * 1.08), price_asked: Math.round(c * 1.15), price_trade: Math.round(c * 1.2) });
-const genSku = (existing) => { const now = td(); const pfx = "TWR-" + now.slice(2, 4) + now.slice(5, 7) + "-"; const nums = (existing || []).filter(p => p.sku?.startsWith(pfx)).map(p => parseInt(p.sku.slice(pfx.length), 10) || 0); const max = nums.length > 0 ? Math.max(...nums) : 0; return pfx + String(max + 1).padStart(4, "0"); };
+const genSku = (existing) => { const now = td(); const pfx = "MWV-" + now.slice(2, 4) + now.slice(5, 7) + "-"; const nums = (existing || []).filter(p => p.sku?.startsWith(pfx)).map(p => parseInt(p.sku.slice(pfx.length), 10) || 0); const max = nums.length > 0 ? Math.max(...nums) : 0; return pfx + String(max + 1).padStart(4, "0"); };
 
 /* ═══ STORAGE HELPERS ═══ */
 const BUCKET_FOTOS = "fotos_piezas";
@@ -171,11 +171,12 @@ const CASE_SIZES = ["24","26","28","30","31","33","34","36","37","38","39","40",
 const EXIT_TYPES = [{v:"venta",l:"Venta"},{v:"trade_out",l:"Trade Out"},{v:"retorno_consignacion",l:"Retorno consignación"}];
 const ROLE_OPTS = ["superuser","operador","inversionista","readonly"];
 const PERMS = {
-  superuser:      { dash:true, inv:true, newPc:true, sell:true, tx:true, txEdit:false, cortes:true, cats:true, reports:true, cfgUsers:true, cfgSocios:true, cfgCat:true, del:true },
-  director:       { dash:true, inv:true, newPc:true, sell:true, tx:true, txEdit:false, cortes:true, cats:true, reports:true, cfgUsers:false, cfgSocios:false, cfgCat:true, del:false },
-  operador:       { dash:true, inv:true, newPc:true, sell:false, tx:true, txEdit:false, cortes:false, cats:true, reports:false, cfgUsers:false, cfgSocios:false, cfgCat:false, del:false },
-  inversionista:  { dash:true, inv:true, newPc:false, sell:false, tx:false, txEdit:false, cortes:true, cats:false, reports:true, cfgUsers:false, cfgSocios:false, cfgCat:false, del:false },
-  pending:        { dash:false, inv:false, newPc:false, sell:false, tx:false, txEdit:false, cortes:false, cats:false, reports:false, cfgUsers:false, cfgSocios:false, cfgCat:false, del:false },
+  superuser:      { dash:true, inv:true, newPc:true, sell:true, tx:true, txEdit:false, cortes:true, cats:true, reports:true, cfgUsers:true, cfgSocios:true, cfgCat:true, del:true, col:true },
+  director:       { dash:true, inv:true, newPc:true, sell:true, tx:true, txEdit:false, cortes:true, cats:true, reports:true, cfgUsers:false, cfgSocios:false, cfgCat:true, del:false, col:true },
+  operador:       { dash:true, inv:true, newPc:true, sell:false, tx:true, txEdit:false, cortes:false, cats:true, reports:false, cfgUsers:false, cfgSocios:false, cfgCat:false, del:false, col:true },
+  inversionista:  { dash:true, inv:true, newPc:false, sell:false, tx:false, txEdit:false, cortes:true, cats:false, reports:true, cfgUsers:false, cfgSocios:false, cfgCat:false, del:false, col:true },
+  user:           { dash:false, inv:false, newPc:false, sell:false, tx:false, txEdit:false, cortes:false, cats:true, reports:false, cfgUsers:false, cfgSocios:false, cfgCat:false, del:false, col:true },
+  pending:        { dash:false, inv:false, newPc:false, sell:false, tx:false, txEdit:false, cortes:false, cats:false, reports:false, cfgUsers:false, cfgSocios:false, cfgCat:false, del:false, col:false },
 };
 const can = (role, perm) => (PERMS[role] || PERMS.pending)[perm] || false;
 const SUPPLIER_TYPES = ["Particular","Dealer","Consignación","Subasta","Trade-in"];
@@ -186,7 +187,7 @@ const buildInvestorInfo = (profiles) => {
   const info = {};
   (profiles || []).forEach(p => {
     if (p.role === "inversionista" || p.role === "superuser") {
-      info[p.id] = { short: p.name, full: p.name, icon: p.role === "superuser" ? "👤" : "💼", color: "#C9A96E", participacion: Number(p.participacion) || 0, participacion_ops: Number(p.participacion_ops) || 0 };
+      info[p.id] = { short: p.name, full: p.name, icon: p.role === "superuser" ? "👤" : "💼", color: "#A0A0A0", participacion: Number(p.participacion) || 0, participacion_ops: Number(p.participacion_ops) || 0 };
     }
   });
   return info;
@@ -216,21 +217,21 @@ const DOC_TYPES = [
 const etLabel = v => ETYPES.find(e => e.v === v)?.l || v;
 
 /* ═══ GLOBAL STYLES ═══ */
-const SID = "twr-css-13";
+const SID = "mwv-css-1";
 if (typeof document !== "undefined" && !document.getElementById(SID)) {
   const el = document.createElement("style"); el.id = SID;
   el.textContent = `
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
-    :root{--nv:#0B1D33;--n2:#122A47;--n3:#1A3A5C;--ns:#0F2440;--gd:#C9A96E;--gl:#D4BA85;--gk:#A08650;--cr:#F5F0E8;--cd:#D6CEBF;--gn:#4ADE80;--rd:#FB7185;--bl:#60A5FA;--pr:#C084FC}
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+    :root{--nv:#0C0C0C;--n2:#161616;--n3:#202020;--ns:#111111;--gd:#A0A0A0;--gl:#C0C0C0;--gk:#707070;--cr:#F0F0F0;--cd:#9CA3AF;--gn:#4ADE80;--rd:#FB7185;--bl:#60A5FA;--pr:#C084FC}
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     body{margin:0;background:var(--nv);overflow-x:hidden}
-    .fd{font-family:'Playfair Display',Georgia,serif}.fb{font-family:'DM Sans',system-ui,sans-serif}
-    .ti{width:100%;padding:10px 14px;border-radius:10px;border:1.5px solid rgba(201,169,110,.2);font-size:14px;background:var(--ns);color:var(--cr);font-family:'DM Sans',system-ui,sans-serif;transition:border-color .2s;outline:none}
-    .ti:focus{border-color:var(--gd);box-shadow:0 0 0 3px rgba(201,169,110,.15)}
+    .fd{font-family:'Inter',Georgia,serif}.fb{font-family:'DM Sans',system-ui,sans-serif}
+    .ti{width:100%;padding:10px 14px;border-radius:10px;border:1.5px solid rgba(160,160,160,.2);font-size:14px;background:var(--ns);color:var(--cr);font-family:'DM Sans',system-ui,sans-serif;transition:border-color .2s;outline:none}
+    .ti:focus{border-color:var(--gd);box-shadow:0 0 0 3px rgba(160,160,160,.15)}
     .ti::placeholder{color:rgba(245,240,232,.3)}.ti option{background:var(--nv);color:var(--cr)}
     .ti:read-only{opacity:.55;cursor:not-allowed;background:rgba(15,36,64,.5)}
     select.ti{cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23C9A96E' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
-    .scr::-webkit-scrollbar{width:6px}.scr::-webkit-scrollbar-track{background:transparent}.scr::-webkit-scrollbar-thumb{background:rgba(201,169,110,.3);border-radius:3px}
+    .scr::-webkit-scrollbar{width:6px}.scr::-webkit-scrollbar-track{background:transparent}.scr::-webkit-scrollbar-thumb{background:rgba(160,160,160,.3);border-radius:3px}
     @keyframes fu{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
     @keyframes fi{from{opacity:0}to{opacity:1}}
     .au{animation:fu .4s ease-out both}.ai{animation:fi .3s ease-out both}
@@ -263,11 +264,11 @@ const IC = {
   wa:"M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z",
 };
 
-function Cd({children,className="",glow,onClick}){return <div className={`rounded-2xl ${className}`} onClick={onClick} style={{background:"var(--n2)",border:"1px solid rgba(255,255,255,.06)",boxShadow:glow?"0 0 40px rgba(201,169,110,.08)":"0 2px 12px rgba(0,0,0,.2)"}}>{children}</div>}
+function Cd({children,className="",glow,onClick}){return <div className={`rounded-2xl ${className}`} onClick={onClick} style={{background:"var(--n2)",border:"1px solid rgba(255,255,255,.06)",boxShadow:glow?"0 0 40px rgba(160,160,160,.08)":"0 2px 12px rgba(0,0,0,.2)"}}>{children}</div>}
 function St({label,value,sub,accent,onClick}){return <Cd className={`p-4 md:p-5${onClick?" cursor-pointer hover:brightness-110 transition-all":""}`} onClick={onClick}><div className="fb text-xs font-medium uppercase tracking-widest" style={{color:"var(--cd)"}}>{label}</div><div className="fd text-xl md:text-2xl font-bold mt-1" style={{color:accent||"white"}}>{value}</div>{sub&&<div className="fb text-xs mt-1" style={{color:"rgba(245,240,232,.4)"}}>{sub}</div>}</Cd>}
-function Bd({text,v="default"}){const st={default:{background:"rgba(245,240,232,.08)",color:"var(--cd)"},gold:{background:"rgba(201,169,110,.15)",color:"var(--gl)"},green:{background:"rgba(74,222,128,.12)",color:"var(--gn)"},red:{background:"rgba(251,113,133,.12)",color:"var(--rd)"},blue:{background:"rgba(96,165,250,.12)",color:"var(--bl)"},purple:{background:"rgba(168,85,247,.12)",color:"var(--pr)"}};return <span className="fb text-xs px-2.5 py-1 rounded-full font-medium" style={st[v]||st.default}>{text}</span>}
+function Bd({text,v="default"}){const st={default:{background:"rgba(245,240,232,.08)",color:"var(--cd)"},gold:{background:"rgba(160,160,160,.15)",color:"var(--gl)"},green:{background:"rgba(74,222,128,.12)",color:"var(--gn)"},red:{background:"rgba(251,113,133,.12)",color:"var(--rd)"},blue:{background:"rgba(96,165,250,.12)",color:"var(--bl)"},purple:{background:"rgba(168,85,247,.12)",color:"var(--pr)"}};return <span className="fb text-xs px-2.5 py-1 rounded-full font-medium" style={st[v]||st.default}>{text}</span>}
 function Fl({label,children,req,hint}){return <div className="mb-3"><label className="fb block text-xs font-semibold uppercase tracking-widest mb-1.5" style={{color:"var(--gk)"}}>{label}{req&&<span style={{color:"var(--rd)"}}> *</span>}</label>{children}{hint&&<div className="fb text-xs mt-1" style={{color:"rgba(245,240,232,.25)"}}>{hint}</div>}</div>}
-function Md({open,onClose,title,children,wide}){if(!open)return null;return <div className="fixed inset-0 z-50 ai" style={{isolation:"isolate"}}><div className="absolute inset-0" style={{background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)"}} /><div className="absolute inset-0 overflow-y-auto scr" style={{pointerEvents:"none"}}><div className="min-h-full flex items-start justify-center pt-4 md:pt-8 px-2 md:px-4 pb-8"><div className={`relative rounded-2xl shadow-2xl ${wide?"w-full max-w-3xl":"w-full max-w-lg"} au`} style={{background:"var(--n2)",border:"1px solid rgba(201,169,110,.15)",pointerEvents:"auto"}} onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()}><div className="sticky top-0 z-10 flex items-center justify-between px-4 md:px-6 py-3 md:py-4 rounded-t-2xl" style={{background:"var(--n2)",borderBottom:"1px solid rgba(255,255,255,.06)"}}><h2 className="fd font-semibold text-base md:text-lg text-white truncate pr-4">{title}</h2><button type="button" onClick={e=>{e.stopPropagation();onClose()}} className="p-1.5 rounded-lg hover:bg-white/5 shrink-0" style={{color:"var(--cd)"}}><Ico d={IC.x}/></button></div><div className="p-4 md:p-6">{children}</div></div></div></div></div>}
+function Md({open,onClose,title,children,wide}){if(!open)return null;return <div className="fixed inset-0 z-50 ai" style={{isolation:"isolate"}}><div className="absolute inset-0" style={{background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)"}} /><div className="absolute inset-0 overflow-y-auto scr" style={{pointerEvents:"none"}}><div className="min-h-full flex items-start justify-center pt-4 md:pt-8 px-2 md:px-4 pb-8"><div className={`relative rounded-2xl shadow-2xl ${wide?"w-full max-w-3xl":"w-full max-w-lg"} au`} style={{background:"var(--n2)",border:"1px solid rgba(160,160,160,.15)",pointerEvents:"auto"}} onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()}><div className="sticky top-0 z-10 flex items-center justify-between px-4 md:px-6 py-3 md:py-4 rounded-t-2xl" style={{background:"var(--n2)",borderBottom:"1px solid rgba(255,255,255,.06)"}}><h2 className="fd font-semibold text-base md:text-lg text-white truncate pr-4">{title}</h2><button type="button" onClick={e=>{e.stopPropagation();onClose()}} className="p-1.5 rounded-lg hover:bg-white/5 shrink-0" style={{color:"var(--cd)"}}><Ico d={IC.x}/></button></div><div className="p-4 md:p-6">{children}</div></div></div></div></div>}
 
 const BtnP=({children,onClick,disabled,full})=><button type="button" onClick={onClick} disabled={disabled} className={`fb px-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:brightness-110 active:scale-[.98] disabled:opacity-40 disabled:cursor-not-allowed ${full?"w-full":""}`} style={{background:"var(--gd)",color:"var(--nv)"}}>{children}</button>;
 const BtnS=({children,onClick,full,disabled})=><button type="button" onClick={onClick} disabled={disabled} className={`fb px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed ${full?"w-full":""}`} style={{background:"rgba(245,240,232,.06)",color:"var(--cd)",border:"1px solid rgba(255,255,255,.08)"}}>{children}</button>;
@@ -275,7 +276,7 @@ const BtnG=({children,onClick,disabled})=><button type="button" onClick={onClick
 const BtnD=({children,onClick})=><button type="button" onClick={onClick} className="fb px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-900/30" style={{color:"var(--rd)"}}>{children}</button>;
 
 /* ═══ FUND SELECTOR (compact for mobile) ═══ */
-function InvSel({value,onChange,label,investors,txs}){const cashOf=id=>(txs||[]).reduce((s,t)=>t.inversionista_id===id?s+(t.monto||0):s,0);return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{(investors||[]).map(inv=>{const s=value===inv.id;const cash=cashOf(inv.id);return <button key={inv.id} type="button" onClick={()=>onChange(inv.id)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(201,169,110,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{inv.role==="superuser"?"👤":"💼"}</span><span className="fb font-semibold text-sm text-white flex-1">{inv.name}</span><span className="fb text-xs" style={{color:cash>=0?"var(--gn)":"var(--rd)"}}>{fmxn(cash)}</span>{inv.participacion>0&&<span className="fb text-xs px-1.5 py-0.5 rounded-full" style={{background:"rgba(201,169,110,.1)",color:"var(--gd)"}}>{inv.participacion}%</span>}{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
+function InvSel({value,onChange,label,investors,txs}){const cashOf=id=>(txs||[]).reduce((s,t)=>t.inversionista_id===id?s+(t.monto||0):s,0);return <div>{label&&<label className="fb block text-xs font-semibold uppercase tracking-widest mb-2" style={{color:"var(--gk)"}}>{label} <span style={{color:"var(--rd)"}}>*</span></label>}<div className="space-y-2">{(investors||[]).map(inv=>{const s=value===inv.id;const cash=cashOf(inv.id);return <button key={inv.id} type="button" onClick={()=>onChange(inv.id)} className="w-full text-left p-3 rounded-xl transition-all" style={{background:s?"rgba(160,160,160,.1)":"rgba(255,255,255,.02)",border:s?"1.5px solid var(--gd)":"1.5px solid rgba(255,255,255,.06)"}}><div className="flex items-center gap-2"><span className="text-lg">{inv.role==="superuser"?"👤":"💼"}</span><span className="fb font-semibold text-sm text-white flex-1">{inv.name}</span><span className="fb text-xs" style={{color:cash>=0?"var(--gn)":"var(--rd)"}}>{fmxn(cash)}</span>{inv.participacion>0&&<span className="fb text-xs px-1.5 py-0.5 rounded-full" style={{background:"rgba(160,160,160,.1)",color:"var(--gd)"}}>{inv.participacion}%</span>}{s&&<span className="fb text-xs font-bold" style={{color:"var(--gd)"}}>✓</span>}</div></button>})}</div></div>}
 
 /* ═══ PHOTO UPLOAD COMPONENT ═══ */
 /* ═══ IMAGE CROPPER ═══ */
@@ -291,7 +292,7 @@ function ImageCropper({ file, onCrop, onCancel }) {
     const c = canvasRef.current, sc = Math.min(window.innerWidth - 80, 600) / img.width;
     c.width = img.width * sc; c.height = img.height * sc;
     const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0, c.width, c.height);
-    if (crop) { ctx.fillStyle = "rgba(0,0,0,.4)"; ctx.fillRect(0, 0, c.width, crop.y); ctx.fillRect(0, crop.y + crop.h, c.width, c.height - crop.y - crop.h); ctx.fillRect(0, crop.y, crop.x, crop.h); ctx.fillRect(crop.x + crop.w, crop.y, c.width - crop.x - crop.w, crop.h); ctx.strokeStyle = "#C9A96E"; ctx.lineWidth = 2; ctx.setLineDash([6, 3]); ctx.strokeRect(crop.x, crop.y, crop.w, crop.h); }
+    if (crop) { ctx.fillStyle = "rgba(0,0,0,.4)"; ctx.fillRect(0, 0, c.width, crop.y); ctx.fillRect(0, crop.y + crop.h, c.width, c.height - crop.y - crop.h); ctx.fillRect(0, crop.y, crop.x, crop.h); ctx.fillRect(crop.x + crop.w, crop.y, c.width - crop.x - crop.w, crop.h); ctx.strokeStyle = "#A0A0A0"; ctx.lineWidth = 2; ctx.setLineDash([6, 3]); ctx.strokeRect(crop.x, crop.y, crop.w, crop.h); }
   }, [img, crop]);
   const gp = (e) => { const r = canvasRef.current.getBoundingClientRect(), t = e.touches ? e.touches[0] : e; return { x: t.clientX - r.left, y: t.clientY - r.top }; };
   const onD = (e) => { e.preventDefault(); setDragging(true); setStart(gp(e)); setCrop(null); };
@@ -359,7 +360,7 @@ function PhotoUploader({ pieceId, fotos, onUpload, onDelete, isNew, onOcrResult 
 
   return <>
     {cropFile && <ImageCropper file={cropFile} onCrop={onCropDone} onCancel={() => { setCropFile(null); setCropPos(null); setCropReplace(null); }} />}
-    <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
+    <div className="rounded-xl p-4" style={{ background: "rgba(160,160,160,.04)", border: "1px solid rgba(160,160,160,.08)" }}>
       <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Fotografías del Reloj</div>
 
       {/* Quick capture bar */}
@@ -369,7 +370,7 @@ function PhotoUploader({ pieceId, fotos, onUpload, onDelete, isNew, onOcrResult 
             📸 Tomar Foto
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(nextEmpty.id, e.target.files[0], null); }} />
           </label>
-          <label className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl cursor-pointer font-semibold text-sm transition-all hover:brightness-110" style={{ background: "rgba(201,169,110,.1)", color: "var(--gd)", border: "1px solid rgba(201,169,110,.15)" }}>
+          <label className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl cursor-pointer font-semibold text-sm transition-all hover:brightness-110" style={{ background: "rgba(160,160,160,.1)", color: "var(--gd)", border: "1px solid rgba(160,160,160,.15)" }}>
             🖼 Galería
             <input ref={galleryRef} type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(nextEmpty.id, e.target.files[0], null); }} />
           </label>
@@ -398,7 +399,7 @@ function PhotoUploader({ pieceId, fotos, onUpload, onDelete, isNew, onOcrResult 
                 <label className="cursor-pointer fb text-xs px-2 py-1 rounded-lg hover:brightness-125 transition-all" style={{ background: "rgba(74,222,128,.15)", color: "var(--gn)" }}>
                   📸<input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(pos.id, e.target.files[0], null); }} />
                 </label>
-                <label className="cursor-pointer fb text-xs px-2 py-1 rounded-lg hover:brightness-125 transition-all" style={{ background: "rgba(201,169,110,.12)", color: "var(--gd)" }}>
+                <label className="cursor-pointer fb text-xs px-2 py-1 rounded-lg hover:brightness-125 transition-all" style={{ background: "rgba(160,160,160,.12)", color: "var(--gd)" }}>
                   🖼<input type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(pos.id, e.target.files[0], null); }} />
                 </label>
               </div>
@@ -504,7 +505,7 @@ function DocUploader({ entityType, entityId, requiredDocs, docs, onUpload }) {
               {existing ? (
                 <a href={existing.url} target="_blank" rel="noopener" className="fb text-xs px-3 py-1.5 rounded-lg" style={{ background: "rgba(96,165,250,.12)", color: "var(--bl)" }}>Ver</a>
               ) : (
-                <label className="fb text-xs px-3 py-1.5 rounded-lg cursor-pointer hover:brightness-125" style={{ background: "rgba(201,169,110,.12)", color: "var(--gd)" }}>
+                <label className="fb text-xs px-3 py-1.5 rounded-lg cursor-pointer hover:brightness-125" style={{ background: "rgba(160,160,160,.12)", color: "var(--gd)" }}>
                   {isUp ? "⏳" : "Subir"}
                   <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" className="hidden" onChange={e => { if (e.target.files?.[0]) handleUpload(dt.id, e.target.files[0]); }} />
                 </label>
@@ -681,7 +682,7 @@ function PublicCatalog() {
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--nv)" }}>
       <div className="text-center au">
-        <div className="fd text-3xl font-bold text-white mb-2">The Wrist Room</div>
+        <div className="fd text-3xl font-bold text-white mb-2">My Watch Vault</div>
         <div className="fb text-sm" style={{ color: "var(--cd)" }}>Cargando catálogo...</div>
       </div>
     </div>
@@ -690,7 +691,7 @@ function PublicCatalog() {
   const pieces = data?.pieces || [];
   const fotos = data?.fotos || [];
   const waNum = data?.settings?.whatsapp_number?.replace(/"/g, "") || "";
-  const bizName = data?.settings?.business_name?.replace(/"/g, "") || "The Wrist Room";
+  const bizName = data?.settings?.business_name?.replace(/"/g, "") || "My Watch Vault";
   const catCfg = data?.settings?.catalog_config || {};
   const showPrices = catCfg.show_prices !== false;
   const brands = [...new Set(pieces.map(p => p.brand).filter(Boolean))].sort();
@@ -733,10 +734,10 @@ function PublicCatalog() {
     const wa = getWa(p);
     return (
       <div className="min-h-screen pb-24" style={{ background: "var(--nv)" }}>
-        <div className="sticky top-0 z-20 flex items-center gap-3 px-4 py-3" style={{ background: "rgba(11,29,51,.95)", backdropFilter: "blur(10px)", borderBottom: "1px solid rgba(201,169,110,.1)" }}>
+        <div className="sticky top-0 z-20 flex items-center gap-3 px-4 py-3" style={{ background: "rgba(11,29,51,.95)", backdropFilter: "blur(10px)", borderBottom: "1px solid rgba(160,160,160,.1)" }}>
           <button onClick={() => { setSelected(null); setPhotoIdx(0); }} className="p-2 rounded-xl" style={{ color: "var(--gd)" }}>←</button>
           <div className="flex-1 truncate"><span className="fd text-sm font-semibold text-white">{p.name}</span></div>
-          {p.es_referenciada && <span className="fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(201,169,110,.15)", color: "var(--gd)" }}>🤝 Referenciada</span>}
+          {p.es_referenciada && <span className="fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(160,160,160,.15)", color: "var(--gd)" }}>🤝 Referenciada</span>}
         </div>
 
         {pFotos.length > 0 ? (
@@ -775,10 +776,10 @@ function PublicCatalog() {
             </div>
           )}
           {p.es_referenciada && (
-            <div className="rounded-xl p-3" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.12)" }}>
+            <div className="rounded-xl p-3" style={{ background: "rgba(160,160,160,.06)", border: "1px solid rgba(160,160,160,.12)" }}>
               <div className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gd)" }}>🤝 Pieza Referenciada</div>
               {p.referenciada_por && <div className="fb text-sm mt-1 text-white">Comercializado por: <strong>{p.referenciada_por}</strong></div>}
-              <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Esta pieza se encuentra en resguardo del comercializador. TWR facilita la vinculación.</div>
+              <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Esta pieza se encuentra en resguardo del comercializador. MWV facilita la vinculación.</div>
             </div>
           )}
           <div className="grid grid-cols-2 gap-3">
@@ -818,10 +819,10 @@ function PublicCatalog() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--nv)" }}>
       {/* ═══ HERO HEADER ═══ */}
-      <div className="text-center px-4 pt-8 pb-4" style={{ background: "linear-gradient(180deg, rgba(201,169,110,.08) 0%, transparent 100%)" }}>
+      <div className="text-center px-4 pt-8 pb-4" style={{ background: "linear-gradient(180deg, rgba(160,160,160,.08) 0%, transparent 100%)" }}>
         <div className="fd text-3xl md:text-4xl font-bold text-white tracking-tight">{bizName}</div>
         <div className="fb text-sm mt-2" style={{ color: "var(--cd)", maxWidth: 480, margin: "0 auto" }}>
-          Relojes de lujo autenticados. Cada pieza verificada, documentada y respaldada.
+          Relojes autenticados y documentados. Tu colección, tu inversión, tu legado.
         </div>
         <div className="flex items-center justify-center gap-4 mt-3">
           <div className="fb text-xs px-3 py-1.5 rounded-full" style={{ background: "rgba(74,222,128,.1)", color: "var(--gn)" }}>{availCount} disponible{availCount !== 1 ? "s" : ""}</div>
@@ -830,21 +831,21 @@ function PublicCatalog() {
       </div>
 
       {/* ═══ FILTERS ═══ */}
-      <div className="sticky top-0 z-20 px-3 py-3" style={{ background: "rgba(11,29,51,.97)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(201,169,110,.08)" }}>
+      <div className="sticky top-0 z-20 px-3 py-3" style={{ background: "rgba(11,29,51,.97)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(160,160,160,.08)" }}>
         <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
           <select className="fb text-xs px-3 py-2 rounded-xl shrink-0" value={brandFilter} onChange={e => setBrandFilter(e.target.value)}
-            style={{ background: brandFilter ? "rgba(201,169,110,.15)" : "rgba(255,255,255,.06)", color: brandFilter ? "var(--cr)" : "var(--cd)", border: "1px solid rgba(255,255,255,.08)" }}>
+            style={{ background: brandFilter ? "rgba(160,160,160,.15)" : "rgba(255,255,255,.06)", color: brandFilter ? "var(--cr)" : "var(--cd)", border: "1px solid rgba(255,255,255,.08)" }}>
             <option value="">Todas las marcas</option>
             {brands.map(b => <option key={b} value={b}>{b}</option>)}
           </select>
           <select className="fb text-xs px-3 py-2 rounded-xl shrink-0" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            style={{ background: statusFilter !== "all" ? "rgba(201,169,110,.15)" : "rgba(255,255,255,.06)", color: statusFilter !== "all" ? "var(--cr)" : "var(--cd)", border: "1px solid rgba(255,255,255,.08)" }}>
+            style={{ background: statusFilter !== "all" ? "rgba(160,160,160,.15)" : "rgba(255,255,255,.06)", color: statusFilter !== "all" ? "var(--cr)" : "var(--cd)", border: "1px solid rgba(255,255,255,.08)" }}>
             <option value="all">Todas</option>
             <option value="available">Disponibles</option>
             <option value="sold">Vendidas</option>
           </select>
           {sizes.length > 1 && <select className="fb text-xs px-3 py-2 rounded-xl shrink-0" value={sizeFilter} onChange={e => setSizeFilter(e.target.value)}
-            style={{ background: sizeFilter ? "rgba(201,169,110,.15)" : "rgba(255,255,255,.06)", color: sizeFilter ? "var(--cr)" : "var(--cd)", border: "1px solid rgba(255,255,255,.08)" }}>
+            style={{ background: sizeFilter ? "rgba(160,160,160,.15)" : "rgba(255,255,255,.06)", color: sizeFilter ? "var(--cr)" : "var(--cd)", border: "1px solid rgba(255,255,255,.08)" }}>
             <option value="">Todos los tamaños</option>
             {sizes.map(s => <option key={s} value={s}>{s}mm</option>)}
           </select>}
@@ -868,7 +869,7 @@ function PublicCatalog() {
                   {mainFoto ? <img src={mainFoto.url} alt={p.name} className="w-full h-full object-cover" style={sold ? { filter: "grayscale(.4)" } : {}} /> : <div className="w-full h-full flex items-center justify-center" style={{ background: "var(--ns)" }}><span className="text-4xl opacity-20">⌚</span></div>}
                   {sold && <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,.45)" }}><span className="fb text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg" style={{ background: "rgba(251,113,133,.2)", color: "#FB7185", border: "1px solid rgba(251,113,133,.3)" }}>Vendido</span></div>}
                   {!sold && pFotos.length > 1 && <div className="absolute top-2 right-2 fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(0,0,0,.6)", color: "white" }}>{pFotos.length} 📷</div>}
-                  {p.es_referenciada && !sold && <div className="absolute top-2 left-2 fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(201,169,110,.85)", color: "var(--nv)" }}>🤝</div>}
+                  {p.es_referenciada && !sold && <div className="absolute top-2 left-2 fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(160,160,160,.85)", color: "var(--nv)" }}>🤝</div>}
                 </div>
                 <div className="p-3">
                   <div className="fb text-xs" style={{ color: "var(--gk)" }}>{p.brand}{p.case_size ? ` · ${p.case_size}mm` : ""}</div>
@@ -892,7 +893,7 @@ function PublicCatalog() {
       </div>
 
       {/* ═══ FOOTER ═══ */}
-      <footer className="mt-8 px-4 pb-6 pt-6" style={{ borderTop: "1px solid rgba(201,169,110,.08)" }}>
+      <footer className="mt-8 px-4 pb-6 pt-6" style={{ borderTop: "1px solid rgba(160,160,160,.08)" }}>
         <div className="max-w-lg mx-auto text-center space-y-4">
           <div className="fd text-lg font-bold" style={{ color: "var(--gd)" }}>{bizName}</div>
           <div className="fb text-xs leading-relaxed" style={{ color: "var(--cd)" }}>
@@ -955,9 +956,9 @@ function LoginScreen({ onLogin }) {
       if (error) throw error;
       // Create profile
       if (data.user) {
-        await sb.from("profiles").upsert({ id: data.user.id, email, name: name || email, role: "pending", active: false });
+        await sb.from("profiles").upsert({ id: data.user.id, email, name: name || email, role: "user", active: true });
       }
-      setMsg("Cuenta creada. Un administrador debe activar tu perfil antes de que puedas ingresar.");
+      setMsg("¡Cuenta creada! Ya puedes iniciar sesión.");
       setMode("login");
     } catch (e) { setErr(e.message || "Error al registrar"); }
     setLoading(false);
@@ -975,16 +976,15 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "linear-gradient(145deg,#060E1A,var(--nv),#0A1525)" }}>
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "linear-gradient(145deg,#0A0A0A,var(--nv),#0E0E0E)" }}>
       <div className="w-full max-w-sm au">
         <div className="text-center mb-10">
           <div className="fd text-4xl font-bold text-white tracking-tight leading-none">
-            <span className="block text-lg font-medium tracking-[.3em] mb-1" style={{ color: "var(--gd)" }}>THE</span>WRIST
-            <span className="block text-2xl font-medium tracking-[.15em] mt-0.5" style={{ color: "var(--cd)" }}>ROOM</span>
+            <span className="block text-lg font-light tracking-[.3em] mb-1" style={{ color: "var(--gd)" }}>MY WATCH</span>VAULT
           </div>
-          <div className="fb text-xs mt-4 tracking-widest uppercase" style={{ color: "var(--gk)" }}>Sistema de Administración v22</div>
+          <div className="fb text-xs mt-4 tracking-widest uppercase" style={{ color: "var(--gk)" }}>Your personal watch collection platform</div>
         </div>
-        <div className="rounded-2xl p-6" style={{ background: "var(--n2)", border: "1px solid rgba(201,169,110,.12)", boxShadow: "0 20px 60px rgba(0,0,0,.4)" }}>
+        <div className="rounded-2xl p-6" style={{ background: "var(--n2)", border: "1px solid rgba(160,160,160,.12)", boxShadow: "0 20px 60px rgba(0,0,0,.4)" }}>
           {mode === "login" && <>
             <Fl label="Email"><input type="email" className="ti" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@email.com" /></Fl>
             <Fl label="Contraseña"><input type="password" className="ti" value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••" onKeyDown={e => { if (e.key === "Enter") goLogin(); }} /></Fl>
@@ -1004,7 +1004,7 @@ function LoginScreen({ onLogin }) {
             <Fl label="Contraseña"><input type="password" className="ti" value={pass} onChange={e => setPass(e.target.value)} placeholder="Mínimo 6 caracteres" /></Fl>
             {err && <div className="fb text-xs text-center mb-3" style={{ color: "var(--rd)" }}>{err}</div>}
             <BtnP onClick={goRegister} disabled={loading} full>{loading ? "Registrando..." : "Crear Cuenta"}</BtnP>
-            <div className="text-center mt-3 fb text-xs p-2 rounded-lg" style={{ color: "var(--cd)", background: "rgba(255,255,255,.03)" }}>Nota: Un administrador debe activar tu cuenta después del registro.</div>
+            <div className="text-center mt-3 fb text-xs p-2 rounded-lg" style={{ color: "var(--cd)", background: "rgba(255,255,255,.03)" }}>Crea tu cuenta gratuita para empezar a gestionar tu colección de relojes.</div>
             <div className="text-center mt-3">
               <button onClick={() => { setMode("login"); setErr(""); }} className="fb text-xs hover:underline" style={{ color: "var(--gd)" }}>← Regresar al login</button>
             </div>
@@ -1098,7 +1098,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
         {TABS.map(t => (
           <button key={t.id} type="button" onClick={() => setTab(t.id)}
             className="flex-1 fb text-xs font-semibold px-2 py-2.5 rounded-lg transition-all flex items-center justify-center gap-1.5"
-            style={tab === t.id ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
+            style={tab === t.id ? { background: "rgba(160,160,160,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
             <span>{t.icon}</span><span className="hidden md:inline">{t.l}</span>
             {t.count > 0 && <span className="fb text-xs px-1.5 py-0.5 rounded-full" style={{ background: "rgba(74,222,128,.15)", color: "var(--gn)", fontSize: 10 }}>{t.count}</span>}
           </button>
@@ -1108,7 +1108,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
       {/* ═══ TAB: IDENTIFICACIÓN ═══ */}
       {tab === "id" && (
         <div className="space-y-4 au">
-          <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
+          <div className="rounded-xl p-4" style={{ background: "rgba(160,160,160,.04)", border: "1px solid rgba(160,160,160,.08)" }}>
             <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Identificación del Reloj</div>
             <WatchRefSelector brand={f.brand} model={f.model} refNum={f.ref} customRefs={customRefs}
               onChange={(field, val) => {
@@ -1201,7 +1201,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
               <span className="fb text-sm font-medium text-white">Publicar en catálogo público</span>
             </label>
             {f.publish_catalog && <Fl label="Descripción para catálogo"><textarea className="ti" rows={2} value={f.catalog_description || ""} onChange={e => u("catalog_description", e.target.value)} placeholder="Descripción visible en el catálogo público..." /></Fl>}
-            {f.publish_catalog && <Fl label="WhatsApp de contacto (esta pieza)" hint="Si se deja vacío, se usa el número general de TWR">
+            {f.publish_catalog && <Fl label="WhatsApp de contacto (esta pieza)" hint="Si se deja vacío, se usa el número general de MWV">
               <input className="ti" value={f.whatsapp_pieza || ""} onChange={e => u("whatsapp_pieza", e.target.value)} placeholder="5219991234567" />
             </Fl>}
 
@@ -1217,7 +1217,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                 {f.es_referenciada && (
                   <div className="grid grid-cols-2 gap-3 mt-2">
                     <Fl label="Comercializado por" req><input className="ti" value={f.referenciada_por || ""} onChange={e => u("referenciada_por", e.target.value)} placeholder="Nombre del colaborador" /></Fl>
-                    <Fl label="Comisión TWR %" hint="Porcentaje que TWR cobra por vinculación"><input type="number" className="ti" value={f.referenciada_comision || ""} onChange={e => u("referenciada_comision", Number(e.target.value))} placeholder="5" /></Fl>
+                    <Fl label="Comisión MWV %" hint="Porcentaje que MWV cobra por vinculación"><input type="number" className="ti" value={f.referenciada_comision || ""} onChange={e => u("referenciada_comision", Number(e.target.value))} placeholder="5" /></Fl>
                   </div>
                 )}
               </>
@@ -1246,7 +1246,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
         <div className="space-y-4 au">
           {/* ═══ COLLECTION MODE ═══ */}
           {isCol && (<>
-            <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
+            <div className="rounded-xl p-4" style={{ background: "rgba(160,160,160,.04)", border: "1px solid rgba(160,160,160,.08)" }}>
               <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Información de Compra</div>
               <div className="grid grid-cols-2 gap-3">
                 <Fl label="Comprado a"><input className="ti" value={f.purchase_from || ""} onChange={e => u("purchase_from", e.target.value)} placeholder="AD, dealer, particular, herencia..." /></Fl>
@@ -1257,7 +1257,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                 <Fl label="Condición al comprar"><select className="ti" value={f.condition} onChange={e => u("condition", e.target.value)}>{["Nuevo (Unworn)","Excelente","Muy Bueno","Bueno","Regular","Necesita servicio"].map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
               </div>
             </div>
-            <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.12)" }}>
+            <div className="rounded-xl p-4" style={{ background: "rgba(160,160,160,.06)", border: "1px solid rgba(160,160,160,.12)" }}>
               <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>💰 Valoración</div>
               <Fl label="Precio de Compra (MXN)" req>
                 <input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={f.cost || ""} onChange={e => { const n = Number(e.target.value); u("cost", n); if (!f.current_value) u("current_value", n); }} placeholder="0" />
@@ -1267,7 +1267,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                 <Fl label="Valor Asegurado" hint="Declarado en póliza"><input type="number" className="ti" value={f.insured_value || ""} onChange={e => u("insured_value", Number(e.target.value))} placeholder="0" /></Fl>
               </div>
               {Number(f.cost) > 0 && (() => { const cv = Number(f.current_value) || Number(f.cost); const gain = cv - Number(f.cost); const pct = ((gain / Number(f.cost)) * 100).toFixed(1); return (
-                <div className="mt-3 grid grid-cols-3 gap-2 text-center p-3 rounded-xl" style={{ background: "rgba(201,169,110,.05)", border: "1px solid rgba(201,169,110,.1)" }}>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center p-3 rounded-xl" style={{ background: "rgba(160,160,160,.05)", border: "1px solid rgba(160,160,160,.1)" }}>
                   <div><div className="fb text-xs" style={{ color: "var(--bl)" }}>Compra</div><div className="fd font-bold" style={{ color: "var(--bl)" }}>{fmxn(f.cost)}</div></div>
                   <div><div className="fb text-xs" style={{ color: "var(--cr)" }}>Valor Actual</div><div className="fd font-bold text-white">{fmxn(cv)}</div></div>
                   <div><div className="fb text-xs" style={{ color: gain >= 0 ? "var(--gn)" : "var(--rd)" }}>+/- Valor</div><div className="fd font-bold" style={{ color: gain >= 0 ? "var(--gn)" : "var(--rd)" }}>{gain >= 0 ? "+" : ""}{fmxn(gain)} ({pct}%)</div></div>
@@ -1278,7 +1278,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
           {/* ═══ INVENTORY MODE ═══ */}
           {!isCol && (<>
           {/* Proveedor */}
-          <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
+          <div className="rounded-xl p-4" style={{ background: "rgba(160,160,160,.04)", border: "1px solid rgba(160,160,160,.08)" }}>
             <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Proveedor / Vendedor</div>
             {!newSupplier ? (
               <div className="flex gap-2">
@@ -1286,7 +1286,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                   <option value="">— Sin asignar —</option>
                   {(suppliers || []).map(s => <option key={s.id} value={s.id}>{s.id === "TRADE" ? "🔄 " : ""}{s.name} ({s.type || "Particular"}) {s.phone ? `· ${s.phone}` : ""}</option>)}
                 </select>
-                <button type="button" onClick={() => setNewSupplier({ name: "", phone: "", email: "", ine: "", type: "Particular", notes: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>+ Nuevo</button>
+                <button type="button" onClick={() => setNewSupplier({ name: "", phone: "", email: "", ine: "", type: "Particular", notes: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap" style={{ background: "rgba(160,160,160,.12)", color: "var(--cr)" }}>+ Nuevo</button>
               </div>
             ) : (
               <div className="space-y-2">
@@ -1350,7 +1350,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
           </div>
 
           {/* Pricing */}
-          <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.12)" }}>
+          <div className="rounded-xl p-4" style={{ background: "rgba(160,160,160,.06)", border: "1px solid rgba(160,160,160,.12)" }}>
             <Fl label="Precio Costo (MXN)" req>
               <input type="number" className="ti" style={{ fontSize: 18, fontWeight: 700 }} value={f.cost || ""}
                 onChange={e => { const n = Number(e.target.value); sF(p => ({ ...p, cost: n, ...calcPr(n) })); }} />
@@ -1383,10 +1383,10 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
               <span className="fb text-xs font-bold uppercase tracking-widest" style={{ color: "var(--gk)" }}>Gastos de {piece.name}</span>
               {totalCostos > 0 && <div className="fb text-xs mt-1" style={{ color: "var(--rd)" }}>Total gastos: {fmxn(totalCostos)} · Costo real: {fmxn((f.cost || 0) + totalCostos)}</div>}
             </div>
-            {!newCosto && <button type="button" onClick={() => setNewCosto({ tipo: "TC1", monto: "", fecha: td(), descripcion: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>+ Agregar Gasto</button>}
+            {!newCosto && <button type="button" onClick={() => setNewCosto({ tipo: "TC1", monto: "", fecha: td(), descripcion: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(160,160,160,.12)", color: "var(--cr)" }}>+ Agregar Gasto</button>}
           </div>
           {newCosto && (
-            <div className="rounded-xl p-4 space-y-3" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.12)" }}>
+            <div className="rounded-xl p-4 space-y-3" style={{ background: "rgba(160,160,160,.04)", border: "1px solid rgba(160,160,160,.12)" }}>
               <div className="grid grid-cols-2 gap-3">
                 <Fl label="Tipo de Gasto" req>
                   <select className="ti" value={newCosto.tipo} onChange={e => setNewCosto(p => ({ ...p, tipo: e.target.value }))}>
@@ -1458,7 +1458,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                   </div>
                 </div>);
               })()}
-              <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.1)" }}>
+              <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(160,160,160,.06)", border: "1px solid rgba(160,160,160,.1)" }}>
                 <span className="text-lg">📊</span>
                 <div className="flex-1"><span className="fb text-sm font-semibold text-white">Costo Real Total</span><br /><span className="fb text-xs" style={{ color: "var(--cd)" }}>Adquisición + todos los gastos</span></div>
                 <div className="fd font-bold" style={{ color: "var(--gd)" }}>{fmxn((f.cost || 0) + totalCostos)}</div>
@@ -1477,7 +1477,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
       {/* ═══ SUMMARY BAR + ACTIONS (always visible) ═══ */}
       <div className="rounded-xl p-3" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
         <div className="flex items-center gap-3 flex-wrap mb-3">
-          {f.brand && <span className="fb text-xs px-2 py-1 rounded-full" style={{ background: "rgba(201,169,110,.1)", color: "var(--cr)" }}>{f.brand} {f.model}</span>}
+          {f.brand && <span className="fb text-xs px-2 py-1 rounded-full" style={{ background: "rgba(160,160,160,.1)", color: "var(--cr)" }}>{f.brand} {f.model}</span>}
           {f.ref && <span className="fb text-xs" style={{ color: "var(--cd)" }}>Ref: {f.ref}</span>}
           {f.cost > 0 && <span className="fb text-xs font-bold" style={{ color: "var(--gn)" }}>{fmxn(f.cost)}{totalCostos > 0 ? ` (+${fmxn(totalCostos)} gastos)` : ""}</span>}
           {f.serial && <span className="fb text-xs" style={{ color: "var(--cd)" }}>S/N: {f.serial}</span>}
@@ -1553,7 +1553,7 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
       </div>
 
       {/* Cliente / Contraparte */}
-      <div className="rounded-xl p-3" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
+      <div className="rounded-xl p-3" style={{ background: "rgba(160,160,160,.04)", border: "1px solid rgba(160,160,160,.08)" }}>
         <div className="fb text-xs font-bold uppercase tracking-widest mb-2" style={{ color: "var(--gd)" }}>{isTrade ? "Contraparte del Trade" : "Cliente / Comprador"}</div>
         {!newClient ? (
           <div className="flex gap-2">
@@ -1561,7 +1561,7 @@ function SellForm({ piece, onSave, onClose, docs, socios, allPieces, clients, on
               <option value="">— Sin asignar —</option>
               {(clients || []).map(c => <option key={c.id} value={c.id}>{c.name} {c.phone ? `· ${c.phone}` : ""}</option>)}
             </select>
-            <button type="button" onClick={() => setNewClient({ name: "", phone: "", email: "", ine: "", notes: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>+ Nuevo</button>
+            <button type="button" onClick={() => setNewClient({ name: "", phone: "", email: "", ine: "", notes: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap" style={{ background: "rgba(160,160,160,.12)", color: "var(--cr)" }}>+ Nuevo</button>
           </div>
         ) : (
           <div className="space-y-2">
@@ -1846,7 +1846,7 @@ function TradeForm({ piece, allPieces, onSave, onClose }) {
 
       {/* Balance */}
       {(() => { const netValue = totalIn + cashIn - cashOut; const isLoss = netValue < totalOut; return <>
-      <div className="rounded-xl p-4 text-center" style={{ background: isLoss ? "rgba(251,113,133,.08)" : "rgba(201,169,110,.08)", border: isLoss ? "1px solid rgba(251,113,133,.2)" : "none" }}>
+      <div className="rounded-xl p-4 text-center" style={{ background: isLoss ? "rgba(251,113,133,.08)" : "rgba(160,160,160,.08)", border: isLoss ? "1px solid rgba(251,113,133,.2)" : "none" }}>
         <div className="grid grid-cols-4 gap-2">
           <div><div className="fb text-xs" style={{ color: "var(--rd)" }}>Sale</div><div className="fd font-bold text-white">{fmxn(totalOut)}</div></div>
           <div><div className="fb text-xs" style={{ color: "var(--gn)" }}>Entra</div><div className="fd font-bold text-white">{fmxn(totalIn)}</div></div>
@@ -1913,7 +1913,7 @@ function SettingsPage({ data, showToast, refresh, currentUser }) {
             const ed = profileEdits[p.id] || { name: p.name, role: p.role };
             const changed = ed.name !== p.name || ed.role !== p.role;
             return (
-              <div key={p.id} className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: changed ? "1px solid rgba(201,169,110,.3)" : "1px solid rgba(255,255,255,.06)" }}>
+              <div key={p.id} className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "rgba(255,255,255,.03)", border: changed ? "1px solid rgba(160,160,160,.3)" : "1px solid rgba(255,255,255,.06)" }}>
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 fb text-xs font-bold" style={{ background: p.active ? "rgba(74,222,128,.15)" : "rgba(251,113,133,.15)", color: p.active ? "var(--gn)" : "var(--rd)" }}>
                   {(ed.name || "?")[0].toUpperCase()}
                 </div>
@@ -2082,10 +2082,11 @@ export default function App() {
 
   // v22: Investor model — profiles as bolsas
   const myProfile = useMemo(() => data ? (data.profiles || []).find(p => p.id === user?.id) : null, [data, user]);
+  useEffect(() => { if (myProfile?.role === "user" || myProfile?.role === "inversionista") setPage("coleccion"); }, [myProfile?.role]);
   const investors = useMemo(() => data ? (data.profiles || []).filter(p => p.role === "inversionista" || p.role === "superuser") : [], [data]);
   const invInfo = useMemo(() => {
     const info = {};
-    investors.forEach(p => { info[p.id] = { short: p.name, full: p.name, icon: p.role === "superuser" ? "👤" : "💼", color: "#C9A96E", participacion: Number(p.participacion) || 0, participacion_ops: Number(p.participacion_ops) || 0 }; });
+    investors.forEach(p => { info[p.id] = { short: p.name, full: p.name, icon: p.role === "superuser" ? "👤" : "💼", color: "#A0A0A0", participacion: Number(p.participacion) || 0, participacion_ops: Number(p.participacion_ops) || 0 }; });
     return info;
   }, [investors]);
   const myInvs = useMemo(() => {
@@ -2145,7 +2146,7 @@ export default function App() {
       invPart, opsPart,
       splits: af === "ALL" ? [] : [
         { id: "inv", name: activeProfile?.name || "Inversionista", participacion: invPart, color: "#4ADE80", share: Math.round(rp * invPart / 100) },
-        { id: "ops", name: "Operadores TWR", participacion: opsPart, color: "#C9A96E", share: Math.round(rp * opsPart / 100) },
+        { id: "ops", name: "Operadores MWV", participacion: opsPart, color: "#A0A0A0", share: Math.round(rp * opsPart / 100) },
       ],
     };
   }, [data, activeInv, invInfo]);
@@ -2510,34 +2511,36 @@ export default function App() {
 
   const logout = async () => { await sb.auth.signOut(); setUser(null); setData(null); };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--nv)" }}><div className="fd text-2xl font-bold text-white animate-pulse">W</div></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--nv)" }}><div className="fd text-2xl font-bold text-white animate-pulse">⌚</div></div>;
   if (!user) return <LoginScreen onLogin={u => { setUser(u); loadData(); }} />;
   if (!data) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--nv)" }}><div className="fd text-xl text-white">Cargando datos...</div></div>;
 
   // Check if user is pending activation
   if (myProfile?.role === "pending" || myProfile?.active === false) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "linear-gradient(145deg,#060E1A,var(--nv),#0A1525)" }}>
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "linear-gradient(145deg,#0A0A0A,var(--nv),#0E0E0E)" }}>
         <div className="w-full max-w-sm text-center">
           <div className="text-5xl mb-4">⏳</div>
           <div className="fd text-xl font-bold text-white mb-2">Cuenta Pendiente</div>
           <div className="fb text-sm mb-6" style={{ color: "var(--cd)" }}>Tu cuenta ha sido creada pero un administrador debe activarla antes de que puedas acceder al sistema.</div>
-          <div className="fb text-xs mb-6 p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)", color: "var(--gd)", border: "1px solid rgba(201,169,110,.1)" }}>{user.email}</div>
+          <div className="fb text-xs mb-6 p-3 rounded-xl" style={{ background: "rgba(160,160,160,.06)", color: "var(--gd)", border: "1px solid rgba(160,160,160,.1)" }}>{user.email}</div>
           <BtnS onClick={logout}>Cerrar Sesión</BtnS>
         </div>
       </div>
     );
   }
 
+  const isUser = myProfile?.role === "user";
+  const isOps = myProfile?.role === "superuser" || myProfile?.role === "operador";
   const navI = [
-    { id: "dashboard", i: IC.dash, l: "Dashboard", t: "Resumen general del fondo: KPIs, gráficas, inventario activo" },
-    { id: "inventory", i: IC.inv, l: "Inventario", t: "Todas las piezas: disponibles, vendidas, tradeadas, corregidas" },
+    ...(isOps ? [{ id: "dashboard", i: IC.dash, l: "Dashboard", t: "Resumen general del fondo: KPIs, gráficas, inventario activo" }] : []),
+    ...(isOps ? [{ id: "inventory", i: IC.inv, l: "Inventario", t: "Todas las piezas: disponibles, vendidas, tradeadas, corregidas" }] : []),
     { id: "coleccion", i: "M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z", l: "Mi Colección", t: "Tu colección personal de relojes — inventario privado, seguros, valoración" },
-    { id: "transactions", i: IC.tx, l: "Transacciones", t: "Estado de cuenta con todas las operaciones y saldo corrido" },
-    { id: "cortes", i: IC.cal, l: "Cortes", t: "Cortes mensuales de utilidades y distribución entre socios" },
-    { id: "catalogs", i: IC.cat, l: "Catálogos", t: "Clientes, proveedores y base de datos de relojes" },
-    { id: "reports", i: IC.rep, l: "Reportes", t: "Audit log y historial de cambios" },
-    { id: "settings", i: IC.set, l: "Config", t: "Usuarios, permisos y configuración del sistema" },
+    ...(isOps ? [{ id: "transactions", i: IC.tx, l: "Transacciones", t: "Estado de cuenta con todas las operaciones y saldo corrido" }] : []),
+    ...(isOps ? [{ id: "cortes", i: IC.cal, l: "Cortes", t: "Cortes mensuales de utilidades y distribución entre socios" }] : []),
+    { id: "catalogs", i: IC.cat, l: isUser ? "Mi Catálogo" : "Catálogos", t: isUser ? "Tu catálogo personal de relojes" : "Clientes, proveedores y base de datos de relojes" },
+    ...(isOps ? [{ id: "reports", i: IC.rep, l: "Reportes", t: "Audit log y historial de cambios" }] : []),
+    ...(isOps ? [{ id: "settings", i: IC.set, l: "Config", t: "Usuarios, permisos y configuración del sistema" }] : []),
   ];
 
   const TH = ({ children, r }) => <th className={`fb text-xs font-semibold uppercase tracking-wider py-3 px-3 ${r ? "text-right" : "text-left"}`} style={{ color: "var(--gk)", borderBottom: "1px solid rgba(255,255,255,.06)" }}>{children}</th>;
@@ -2547,26 +2550,26 @@ export default function App() {
     <div className="min-h-screen fb flex" style={{ background: "var(--nv)" }}>
       {/* SIDEBAR */}
       <aside className={`${side ? "w-52" : "w-0 md:w-14"} flex flex-col transition-all duration-300 shrink-0 overflow-hidden`}
-        style={{ background: "linear-gradient(180deg,#071525,var(--nv))", borderRight: "1px solid rgba(201,169,110,.08)" }}>
-        <div className="p-3 flex items-center gap-2" style={{ borderBottom: "1px solid rgba(201,169,110,.08)" }}>
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 fd font-bold text-sm" style={{ background: "var(--gd)", color: "var(--nv)" }}>W</div>
-          {side && <div><div className="fd text-sm font-bold text-white leading-none">The Wrist</div><div className="fd text-xs" style={{ color: "var(--gk)" }}>Room v13</div></div>}
+        style={{ background: "linear-gradient(180deg,#111111,var(--nv))", borderRight: "1px solid rgba(255,255,255,.06)" }}>
+        <div className="p-3 flex items-center gap-2" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}>
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-base" style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.1)" }}>⌚</div>
+          {side && <div><div className="fd text-sm font-bold text-white leading-none tracking-tight">My Watch</div><div className="fd text-xs font-light" style={{ color: "var(--gk)" }}>Vault</div></div>}
         </div>
         <nav className="flex-1 p-2 space-y-1">
-          {navI.map(n => <button key={n.id} onClick={() => { setPage(n.id); if (window.innerWidth < 768) setSide(false); }} title={n.t} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-sm transition-all ${page === n.id ? "" : "hover:bg-white/[.03]"}`} style={page === n.id ? { background: "rgba(201,169,110,.1)", color: "var(--gd)" } : { color: "var(--cd)" }}><Ico d={n.i} s={16} />{side && <span className="font-medium text-sm">{n.l}</span>}</button>)}
+          {navI.map(n => <button key={n.id} onClick={() => { setPage(n.id); if (window.innerWidth < 768) setSide(false); }} title={n.t} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-sm transition-all ${page === n.id ? "" : "hover:bg-white/[.03]"}`} style={page === n.id ? { background: "rgba(160,160,160,.1)", color: "var(--gd)" } : { color: "var(--cd)" }}><Ico d={n.i} s={16} />{side && <span className="font-medium text-sm">{n.l}</span>}</button>)}
         </nav>
-        <div className="p-2" style={{ borderTop: "1px solid rgba(201,169,110,.08)" }}>
+        <div className="p-2" style={{ borderTop: "1px solid rgba(160,160,160,.08)" }}>
           {side && <div className="px-2 mb-2"><div className="text-xs font-semibold text-white truncate">{user.email}</div></div>}
           <div className="flex gap-1">
             <button onClick={() => setSide(!side)} className="flex-1 text-center py-1.5 rounded-lg text-xs hover:bg-white/5" style={{ color: "var(--cd)" }}>{side ? "◂" : "▸"}</button>
             {side && <button onClick={logout} className="flex-1 py-1.5 rounded-lg text-xs hover:bg-white/5" style={{ color: "var(--rd)" }}>Salir</button>}
           </div>
-          {side && <div className="fb text-center text-xs mt-1" style={{ color: "rgba(245,240,232,.2)" }}>TWR OS v22</div>}
+          {side && <div className="fb text-center text-xs mt-1" style={{ color: "rgba(245,240,232,.2)" }}>MWV v1.0</div>}
         </div>
       </aside>
 
       {/* Mobile hamburger */}
-      {!side && <button onClick={() => setSide(true)} className="fixed top-3 left-3 z-30 md:hidden w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--n2)", border: "1px solid rgba(201,169,110,.15)" }}><span style={{ color: "var(--gd)" }}>☰</span></button>}
+      {!side && <button onClick={() => setSide(true)} className="fixed top-3 left-3 z-30 md:hidden w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--n2)", border: "1px solid rgba(160,160,160,.15)" }}><span style={{ color: "var(--gd)" }}>☰</span></button>}
 
       <main className="flex-1 overflow-y-auto scr"><div className="max-w-6xl mx-auto p-4 md:p-8">
 
@@ -2583,13 +2586,13 @@ export default function App() {
               <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: "rgba(255,255,255,.03)" }}>
                 {myProfile?.role === "superuser" && (
                   <button onClick={() => setActiveInv("ALL")} className="fb text-xs font-semibold px-4 py-2 rounded-lg transition-all whitespace-nowrap"
-                    style={activeInv === "ALL" ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
+                    style={activeInv === "ALL" ? { background: "rgba(160,160,160,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
                     📊 Todos
                   </button>
                 )}
                 {myInvs.map(fk => (
                   <button key={fk} onClick={() => setActiveInv(fk)} className="fb text-xs font-semibold px-4 py-2 rounded-lg transition-all whitespace-nowrap"
-                    style={activeInv === fk ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
+                    style={activeInv === fk ? { background: "rgba(160,160,160,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>
                     {invInfo[fk]?.icon || "🏦"} {invInfo[fk]?.short || fk}
                   </button>
                 ))}
@@ -2632,7 +2635,7 @@ export default function App() {
                       {comp.cap > 0 && <div className="fb text-xs mt-0.5" style={{ color: "var(--cd)" }}>{((s.share / comp.cap) * 100).toFixed(1)}% s/capital</div>}
                     </div>
                   ))}
-                  <div className="rounded-xl p-3" style={{ background: "rgba(201,169,110,.06)" }}>
+                  <div className="rounded-xl p-3" style={{ background: "rgba(160,160,160,.06)" }}>
                     <div className="fb text-xs" style={{ color: "var(--gd)" }}>Total</div>
                     <div className="fd font-bold text-lg" style={{ color: comp.rp >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(comp.rp)}</div>
                     {comp.cap > 0 && <div className="fb text-xs mt-0.5" style={{ color: "var(--cd)" }}>{((comp.rp / comp.cap) * 100).toFixed(1)}% s/capital</div>}
@@ -2746,8 +2749,8 @@ export default function App() {
             {/* Investor tabs */}
             {myInvs.length > 1 && (
               <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: "rgba(255,255,255,.03)" }}>
-                {myProfile?.role === "superuser" && <button onClick={() => setActiveInv("ALL")} className="fb text-xs font-semibold px-3 py-2 rounded-lg" style={activeInv === "ALL" ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>Todos</button>}
-                {myInvs.map(fk => <button key={fk} onClick={() => setActiveInv(fk)} className="fb text-xs font-semibold px-3 py-2 rounded-lg whitespace-nowrap" style={activeInv === fk ? { background: "rgba(201,169,110,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>{invInfo[fk]?.icon} {invInfo[fk]?.short || fk}</button>)}
+                {myProfile?.role === "superuser" && <button onClick={() => setActiveInv("ALL")} className="fb text-xs font-semibold px-3 py-2 rounded-lg" style={activeInv === "ALL" ? { background: "rgba(160,160,160,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>Todos</button>}
+                {myInvs.map(fk => <button key={fk} onClick={() => setActiveInv(fk)} className="fb text-xs font-semibold px-3 py-2 rounded-lg whitespace-nowrap" style={activeInv === fk ? { background: "rgba(160,160,160,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>{invInfo[fk]?.icon} {invInfo[fk]?.short || fk}</button>)}
               </div>
             )}
             <div className="relative"><div className="absolute left-3 top-3" style={{ color: "var(--cd)" }}><Ico d={IC.srch} s={16} /></div><input className="ti" style={{ paddingLeft: 36 }} placeholder="Buscar..." value={q} onChange={e => setQ(e.target.value)} /></div>
@@ -2759,7 +2762,7 @@ export default function App() {
                 { col: "brand", label: "Marca" },
                 { col: "name", label: "Nombre" },
                 { col: "sku", label: "SKU" },
-              ].map(s => <button key={s.col} onClick={() => setInvSort(prev => ({ col: s.col, dir: prev.col === s.col && prev.dir === "asc" ? "desc" : "asc" }))} className="fb text-xs px-3 py-1 rounded-full transition-all" style={{ background: invSort.col === s.col ? "rgba(201,169,110,.15)" : "rgba(255,255,255,.04)", color: invSort.col === s.col ? "var(--gd)" : "var(--cd)", border: invSort.col === s.col ? "1px solid rgba(201,169,110,.25)" : "1px solid rgba(255,255,255,.06)" }}>{s.label} {invSort.col === s.col ? (invSort.dir === "asc" ? "↑" : "↓") : ""}</button>)}
+              ].map(s => <button key={s.col} onClick={() => setInvSort(prev => ({ col: s.col, dir: prev.col === s.col && prev.dir === "asc" ? "desc" : "asc" }))} className="fb text-xs px-3 py-1 rounded-full transition-all" style={{ background: invSort.col === s.col ? "rgba(160,160,160,.15)" : "rgba(255,255,255,.04)", color: invSort.col === s.col ? "var(--gd)" : "var(--cd)", border: invSort.col === s.col ? "1px solid rgba(160,160,160,.25)" : "1px solid rgba(255,255,255,.06)" }}>{s.label} {invSort.col === s.col ? (invSort.dir === "asc" ? "↑" : "↓") : ""}</button>)}
             </div>
             <Cd>
               <div className="overflow-x-auto">
@@ -2789,7 +2792,7 @@ export default function App() {
                           </>}
                           {p.status === "Vendido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }} onClick={() => hDevolucion(p)} title={p.exit_type === "trade_out" ? "↩ Devolver trade — rehabilita esta pieza y marca las entrantes como devueltas" : "↩ Devolver venta — regresa la pieza a inventario y reversa el ingreso"}>↩</button>}
                           {p.status !== "Corregido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#F59E0B" }} onClick={() => hCorregir(p)} title="⊘ Corregir — anula esta entrada con transacciones inversas (no borra nada)">⊘</button>}
-                          {p.status === "Disponible" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#25D366" }} onClick={() => { const msg = encodeURIComponent(`Hola! Te comparto esta pieza disponible:\n\n*${p.brand} ${p.model}*\nRef: ${p.ref || "N/A"}\nPrecio: ${fmxn(p.price_asked)}\n\nThe Wrist Room — Mérida, Yucatán\nhttps://twr2.vercel.app/catalog`); window.open(`https://wa.me/?text=${msg}`, "_blank"); }} title="📱 Compartir por WhatsApp — envía link con datos de la pieza">📱</button>}
+                          {p.status === "Disponible" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#25D366" }} onClick={() => { const msg = encodeURIComponent(`Hola! Te comparto esta pieza disponible:\n\n*${p.brand} ${p.model}*\nRef: ${p.ref || "N/A"}\nPrecio: ${fmxn(p.price_asked)}\n\nMy Watch Vault — Mérida, Yucatán\nhttps://mywatchvault.app/catalog`); window.open(`https://wa.me/?text=${msg}`, "_blank"); }} title="📱 Compartir por WhatsApp — envía link con datos de la pieza">📱</button>}
                         </div>
                       </TD>
                     </tr>
@@ -2824,7 +2827,7 @@ export default function App() {
             try {
               const code = Math.random().toString(36).slice(2, 10).toUpperCase();
               await sb.from("piezas").update({ share_code: code, share_expires_at: new Date(Date.now() + 72*60*60*1000).toISOString() }).eq("id", cp.id);
-              const txt = `${cp.brand} ${cp.model}\nRef: ${cp.ref || "N/D"} | S/N: ${cp.serial || "N/D"}\nCódigo: ${code}\nVerificar: ${window.location.origin}/verify/${code}\nVálido 72h — The Wrist Room`;
+              const txt = `${cp.brand} ${cp.model}\nRef: ${cp.ref || "N/D"} | S/N: ${cp.serial || "N/D"}\nCódigo: ${code}\nVerificar: ${window.location.origin}/verify/${code}\nVálido 72h — My Watch Vault`;
               if (navigator.clipboard) { await navigator.clipboard.writeText(txt); showToast("Código copiado al portapapeles"); } else { prompt("Código:", code); }
               await refresh();
             } catch (e) { alert("Error: " + e.message); }
@@ -2936,8 +2939,8 @@ export default function App() {
           const uP = sP.reduce((s, t) => { const p = allPs.find(pc => pc.id === t.pieza_id); return p ? s + (t.monto - (Number(p.cost) || 0) - gOf(t.pieza_id)) : s; }, 0);
           const exportPDF = () => {
             const fl = activeInv === "ALL" ? "Todos" : (invInfo[activeInv]?.short || activeInv), pl = txFrom && txTo ? `${txFrom} al ${txTo}` : "Histórico";
-            let h = `<html><head><meta charset="UTF-8"><title>TWR Reporte</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;padding:40px;color:#1a1a2e;font-size:11px}h1{font-size:22px}h2{font-size:13px;color:#666;margin-bottom:20px}.hd{display:flex;justify-content:space-between;margin-bottom:25px;padding-bottom:12px;border-bottom:2px solid #C9A96E}.bl{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px}.bl>div{padding:10px;border-radius:8px;text-align:center;background:#f8f9fa;border:1px solid #e9ecef}.lb{font-size:9px;color:#666;text-transform:uppercase}.vl{font-size:15px;font-weight:700}.sc{margin:15px 0 8px;font-size:11px;font-weight:700;color:#C9A96E;text-transform:uppercase}table{width:100%;border-collapse:collapse}th{text-align:left;padding:6px;border-bottom:2px solid #C9A96E;font-size:9px;text-transform:uppercase;color:#666}td{padding:5px 6px;border-bottom:1px solid #eee;font-size:10px}.r{text-align:right}.b{font-weight:600}.cx{opacity:.4;text-decoration:line-through}.gn{color:#16a34a}.rd{color:#dc2626}.ft{margin-top:25px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}</style></head><body>`;
-            h += `<div class="hd"><div><h1>The Wrist Room</h1><h2>Reporte — ${fl}</h2><div>${pl}</div></div><div style="text-align:right;font-size:10px;color:#666">${new Date().toLocaleString("es-MX")}</div></div>`;
+            let h = `<html><head><meta charset="UTF-8"><title>MWV Reporte</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;padding:40px;color:#1a1a2e;font-size:11px}h1{font-size:22px}h2{font-size:13px;color:#666;margin-bottom:20px}.hd{display:flex;justify-content:space-between;margin-bottom:25px;padding-bottom:12px;border-bottom:2px solid #A0A0A0}.bl{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px}.bl>div{padding:10px;border-radius:8px;text-align:center;background:#f8f9fa;border:1px solid #e9ecef}.lb{font-size:9px;color:#666;text-transform:uppercase}.vl{font-size:15px;font-weight:700}.sc{margin:15px 0 8px;font-size:11px;font-weight:700;color:#A0A0A0;text-transform:uppercase}table{width:100%;border-collapse:collapse}th{text-align:left;padding:6px;border-bottom:2px solid #A0A0A0;font-size:9px;text-transform:uppercase;color:#666}td{padding:5px 6px;border-bottom:1px solid #eee;font-size:10px}.r{text-align:right}.b{font-weight:600}.cx{opacity:.4;text-decoration:line-through}.gn{color:#16a34a}.rd{color:#dc2626}.ft{margin-top:25px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}</style></head><body>`;
+            h += `<div class="hd"><div><h1>My Watch Vault</h1><h2>Reporte — ${fl}</h2><div>${pl}</div></div><div style="text-align:right;font-size:10px;color:#666">${new Date().toLocaleString("es-MX")}</div></div>`;
             if (txFrom) h += `<div class="sc">Inicio</div><div class="bl"><div><div class="lb">Cash</div><div class="vl">${fmxn(cI)}</div></div><div><div class="lb">Inventario</div><div class="vl">${fmxn(iBC)} (${iB.length})</div></div><div><div class="lb">NAV</div><div class="vl">${fmxn(cI+iBC)}</div></div></div>`;
             h += `<div class="sc">Actividad</div><div class="bl" style="grid-template-columns:repeat(4,1fr)">`;
             Object.entries(act).forEach(([k,v]) => { h += `<div><div class="lb">${AL[k]?.l||k} (${v.n})</div><div class="vl">${v.i>0?`<span class="gn">+${fmxn(v.i)}</span> `:""}${v.o>0?`<span class="rd">-${fmxn(v.o)}</span>`:""}</div></div>`; });
@@ -2945,7 +2948,7 @@ export default function App() {
             if (uP !== 0) { h += `<div class="sc">Utilidad: ${fmxn(uP)}</div><div class="bl" style="grid-template-columns:repeat(${socios.length},1fr)">`; socios.forEach(s => { h += `<div><div class="lb">${s.name} ${s.participacion}%</div><div class="vl gn">${fmxn(Math.round(uP*s.participacion/100))}</div></div>`; }); h += `</div>`; }
             h += `<div class="sc">Detalle (${fil.length})</div><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Desc</th><th class="r">Cargo</th><th class="r">Abono</th><th class="r">Saldo</th></tr></thead><tbody>`;
             let rn = cI; fil.forEach(t => { rn += (t.monto||0); h += `<tr${cIds.has(t.id)?' class="cx"':''}><td>${t.fecha}</td><td>${txL(t.tipo)}</td><td>${(t.descripcion||"").replace(/</g,"&lt;")}</td><td class="r rd">${t.monto<0?fmxn(Math.abs(t.monto)):""}</td><td class="r gn">${t.monto>=0?fmxn(t.monto):""}</td><td class="r b">${fmxn(rn)}</td></tr>`; });
-            h += `</tbody></table><div class="ft">The Wrist Room · Mérida, Yucatán · ${pl}</div></body></html>`;
+            h += `</tbody></table><div class="ft">My Watch Vault · Mérida, Yucatán · ${pl}</div></body></html>`;
             const w = window.open("","_blank"); w.document.write(h); w.document.close(); setTimeout(() => w.print(), 500);
           };
           const exportExcel = async () => {
@@ -2966,7 +2969,7 @@ export default function App() {
               const pl = txFrom && txTo ? `${txFrom} al ${txTo}` : "Histórico";
 
               // ═══ SHEET 1: Estado de Cuenta ═══
-              const s1Data = [["THE WRIST ROOM — Estado de Cuenta"],[`Periodo: ${pl} | Fondo: ${fl}`],[],
+              const s1Data = [["MY WATCH VAULT — Estado de Cuenta"],[`Periodo: ${pl} | Fondo: ${fl}`],[],
                 ["#","Fecha","Tipo","Descripción","Entrada","Salida","Saldo"]];
               let rn = cI; let idx = 0;
               fil.forEach(t => { idx++; rn += (t.monto||0);
@@ -2989,7 +2992,7 @@ export default function App() {
 
               // ═══ SHEET 2: Inventario ═══
               const allP = data.pieces || [];
-              const s2Data = [["THE WRIST ROOM — Inventario de Piezas"],[`${allP.length} piezas | ${allP.filter(p=>p.status==="Disponible").length} en inventario`],[],
+              const s2Data = [["MY WATCH VAULT — Inventario de Piezas"],[`${allP.length} piezas | ${allP.filter(p=>p.status==="Disponible").length} en inventario`],[],
                 ["#","Fecha","SKU","Pieza","Marca","Ref","Serial","Costo","Venta","Utilidad","Status","Motivo"]];
               allP.sort((a,b) => (a.entry_date||"") > (b.entry_date||"") ? 1 : -1).forEach((p,i) => {
                 const sellTx = (data.txs||[]).find(t => t.pieza_id === p.id && t.tipo === "SELL");
@@ -3008,7 +3011,7 @@ export default function App() {
               const invC = allP.filter(p=>p.status==="Disponible").reduce((s,p)=>s+Number(p.cost||0),0);
               const retC = Math.abs((data.txs||[]).filter(t=>t.tipo==="RETIRO_CAPITAL").reduce((s,t)=>s+(t.monto||0),0));
               const invNeta = capT - retC;
-              const s3Data = [["THE WRIST ROOM — Resumen Financiero"],[`Al ${new Date().toLocaleDateString("es-MX")}`],[],
+              const s3Data = [["MY WATCH VAULT — Resumen Financiero"],[`Al ${new Date().toLocaleDateString("es-MX")}`],[],
                 ["CONCEPTO","MONTO","NOTA"],[],
                 ["CAPITAL"],
                 ...([["Capital Bulgari",180000,"16 Feb"],["Capital Omega AT",80000,"16 Feb"],["Cash (ADLC+Tag)",150000,"19 Feb"],["Venta mi Cartier",95000,"19 Feb"],["Miami",100000,"5 Mar"]].map(r=>[r[0],r[1],r[2]])),
@@ -3029,13 +3032,13 @@ export default function App() {
               ws3["!cols"] = [{wch:30},{wch:18},{wch:25}];
               X.utils.book_append_sheet(wb, ws3, "Resumen");
 
-              const fileName = `TWR_Estado_${txFrom || "hist"}_${txTo || new Date().toISOString().slice(0,10)}.xlsx`;
+              const fileName = `MWV_Estado_${txFrom || "hist"}_${txTo || new Date().toISOString().slice(0,10)}.xlsx`;
               X.writeFile(wb, fileName);
               showToast("Excel descargado: " + fileName);
             } catch (e) { alert("Error generando Excel: " + e.message); console.error(e); }
           };
           return <div className="space-y-5 au">
-            <div className="flex items-center justify-between flex-wrap gap-3"><h1 className="fd text-2xl md:text-3xl font-bold text-white">Estado de Cuenta</h1><div className="flex gap-2"><button onClick={exportExcel} className="fb text-xs px-4 py-2.5 rounded-xl font-semibold" style={{ background: "rgba(22,163,74,.12)", color: "#4ADE80", border: "1px solid rgba(22,163,74,.2)" }} title="Exportar a Excel con 3 hojas: Estado de Cuenta, Inventario, Resumen">📊 Excel</button><button onClick={exportPDF} className="fb text-xs px-4 py-2.5 rounded-xl font-semibold" style={{ background: "rgba(201,169,110,.15)", color: "var(--cr)", border: "1px solid rgba(201,169,110,.2)" }} title="Exportar estado de cuenta a PDF para imprimir o compartir">📄 PDF</button><BtnS onClick={() => setModal("ac")} title="Inyectar capital al fondo del inversionista">+ Capital</BtnS><BtnS onClick={() => setModal("rc")} title="Retirar capital del fondo">↑ Retiro</BtnS></div></div>
+            <div className="flex items-center justify-between flex-wrap gap-3"><h1 className="fd text-2xl md:text-3xl font-bold text-white">Estado de Cuenta</h1><div className="flex gap-2"><button onClick={exportExcel} className="fb text-xs px-4 py-2.5 rounded-xl font-semibold" style={{ background: "rgba(22,163,74,.12)", color: "#4ADE80", border: "1px solid rgba(22,163,74,.2)" }} title="Exportar a Excel con 3 hojas: Estado de Cuenta, Inventario, Resumen">📊 Excel</button><button onClick={exportPDF} className="fb text-xs px-4 py-2.5 rounded-xl font-semibold" style={{ background: "rgba(160,160,160,.15)", color: "var(--cr)", border: "1px solid rgba(160,160,160,.2)" }} title="Exportar estado de cuenta a PDF para imprimir o compartir">📄 PDF</button><BtnS onClick={() => setModal("ac")} title="Inyectar capital al fondo del inversionista">+ Capital</BtnS><BtnS onClick={() => setModal("rc")} title="Retirar capital del fondo">↑ Retiro</BtnS></div></div>
             <div className="flex gap-3 items-end flex-wrap">
               <Fl label="Desde"><input type="date" className="ti" value={txFrom} onChange={e => setTxFrom(e.target.value)} style={{ fontSize: 12, padding: "6px 10px" }} /></Fl>
               <Fl label="Hasta"><input type="date" className="ti" value={txTo} onChange={e => setTxTo(e.target.value)} style={{ fontSize: 12, padding: "6px 10px" }} /></Fl>
@@ -3056,7 +3059,7 @@ export default function App() {
             </div>
             {uP !== 0 && <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}><div className="fb text-xs font-bold uppercase tracking-widest mb-2" style={{ color: "var(--gn)" }}>Distribución</div><div className="grid gap-3 text-center" style={{ gridTemplateColumns: `repeat(${socios.length + 1}, 1fr)` }}>
               {socios.map(s => <div key={s.id} className="rounded-lg p-2" style={{ background: `${s.color}11` }}><div className="fb text-xs" style={{ color: s.color }}>{s.name} {s.participacion}%</div><div className="fd font-bold text-white">{fmxn(Math.round(uP * s.participacion / 100))}</div></div>)}
-              <div className="rounded-lg p-2" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Total</div><div className="fd font-bold" style={{ color: uP >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(uP)}</div></div>
+              <div className="rounded-lg p-2" style={{ background: "rgba(160,160,160,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Total</div><div className="fd font-bold" style={{ color: uP >= 0 ? "var(--gn)" : "var(--rd)" }}>{fmxn(uP)}</div></div>
             </div></div>}
             </Cd>
             <Cd><div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}><span className="fb text-xs font-bold" style={{ color: "var(--cd)" }}>Detalle ({fil.length}) — más recientes primero</span></div><div className="overflow-x-auto"><table className="w-full"><thead><tr><TH>Fecha</TH><TH>Tipo</TH><TH>Descripción</TH><TH>Fondo</TH><TH r>Monto</TH><TH r>Saldo</TH><TH>Acción</TH></tr></thead>
@@ -3148,7 +3151,7 @@ export default function App() {
               <div className="fb text-sm font-semibold" style={{ color: "var(--gn)" }}>Vender</div>
               <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Registrar venta directa</div>
             </button>
-            <button onClick={() => { setSel(freshPiece); setModal("trade"); }} className="p-4 rounded-xl text-center transition-all hover:brightness-110" style={{ background: "rgba(201,169,110,.08)", border: "1.5px solid rgba(201,169,110,.15)" }}>
+            <button onClick={() => { setSel(freshPiece); setModal("trade"); }} className="p-4 rounded-xl text-center transition-all hover:brightness-110" style={{ background: "rgba(160,160,160,.08)", border: "1.5px solid rgba(160,160,160,.15)" }}>
               <div className="text-2xl mb-2">🔄</div>
               <div className="fb text-sm font-semibold" style={{ color: "var(--gd)" }}>Nuevo Trade</div>
               <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Intercambiar por otra pieza</div>
@@ -3280,7 +3283,7 @@ function CatalogsSection({ data, refresh, showToast, db }) {
       {/* Tabs */}
       <div className="flex gap-2 flex-wrap">
         {[{id:"proveedores",l:"Proveedores",n:data.suppliers?.length||0},{id:"clientes",l:"Clientes",n:data.clients?.length||0},{id:"marcas",l:"Marcas & Modelos",n:BRANDS.length},{id:"catalogo",l:"Catálogo Público"}].map(t =>
-          <button key={t.id} onClick={() => { setCatTab(t.id); setSearch(""); setEditItem(null); }} className="fb text-sm px-4 py-2 rounded-lg transition-all" style={catTab === t.id ? { background: "rgba(201,169,110,.15)", color: "var(--cr)", fontWeight: 600 } : { background: "rgba(255,255,255,.03)", color: "var(--cd)" }}>{t.l} {t.n != null && <span className="ml-1 text-xs">({t.n})</span>}</button>
+          <button key={t.id} onClick={() => { setCatTab(t.id); setSearch(""); setEditItem(null); }} className="fb text-sm px-4 py-2 rounded-lg transition-all" style={catTab === t.id ? { background: "rgba(160,160,160,.15)", color: "var(--cr)", fontWeight: 600 } : { background: "rgba(255,255,255,.03)", color: "var(--cd)" }}>{t.l} {t.n != null && <span className="ml-1 text-xs">({t.n})</span>}</button>
         )}
       </div>
 
@@ -3295,7 +3298,7 @@ function CatalogsSection({ data, refresh, showToast, db }) {
             </div>
           </div>
           {editItem && editItem.id?.startsWith("Pid") && (
-            <div className="p-3 rounded-xl mb-3" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.12)" }}>
+            <div className="p-3 rounded-xl mb-3" style={{ background: "rgba(160,160,160,.06)", border: "1px solid rgba(160,160,160,.12)" }}>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
                 <input className="ti" placeholder="Nombre *" value={editItem.name} onChange={e => setEditItem(p => ({ ...p, name: e.target.value }))} />
                 <select className="ti" value={editItem.type || "Particular"} onChange={e => setEditItem(p => ({ ...p, type: e.target.value }))}>{SUPPLIER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
@@ -3312,7 +3315,7 @@ function CatalogsSection({ data, refresh, showToast, db }) {
               const deals = (data.pieces || []).filter(p => p.supplier_id === s.id).length;
               return (
               <div key={s.id} className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "rgba(255,255,255,.02)" }}>
-                <div className="w-9 h-9 rounded-full flex items-center justify-center fb text-sm font-bold" style={{ background: "rgba(201,169,110,.12)", color: "var(--cr)" }}>{(s.name || "?")[0]}</div>
+                <div className="w-9 h-9 rounded-full flex items-center justify-center fb text-sm font-bold" style={{ background: "rgba(160,160,160,.12)", color: "var(--cr)" }}>{(s.name || "?")[0]}</div>
                 <div className="flex-1 min-w-0">
                   <div className="fb text-sm font-semibold text-white truncate">{s.name} <span className="text-xs font-normal" style={{ color: "var(--cd)" }}>· {s.type || "Particular"}</span></div>
                   <div className="fb text-xs" style={{ color: "var(--cd)" }}>{[s.phone, s.email].filter(Boolean).join(" · ") || "Sin contacto"}{deals > 0 && ` · ${deals} pieza(s)`}</div>
@@ -3337,7 +3340,7 @@ function CatalogsSection({ data, refresh, showToast, db }) {
             </div>
           </div>
           {editItem && editItem.id?.startsWith("Cid") && (
-            <div className="p-3 rounded-xl mb-3" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.12)" }}>
+            <div className="p-3 rounded-xl mb-3" style={{ background: "rgba(160,160,160,.06)", border: "1px solid rgba(160,160,160,.12)" }}>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
                 <input className="ti" placeholder="Nombre *" value={editItem.name} onChange={e => setEditItem(p => ({ ...p, name: e.target.value }))} />
                 <select className="ti" value={editItem.tier || "Prospecto"} onChange={e => setEditItem(p => ({ ...p, tier: e.target.value }))}>{CLIENT_TIERS.map(t => <option key={t} value={t}>{t}</option>)}</select>
@@ -3373,7 +3376,7 @@ function CatalogsSection({ data, refresh, showToast, db }) {
         <>
           <Cd className="p-4">
             <h3 className="fd font-semibold text-white mb-3">Marcas y Modelos ({BRANDS.length} marcas)</h3>
-            <div className="flex flex-wrap gap-2">{BRANDS.map(b => <span key={b} className="fb text-sm px-3 py-1.5 rounded-lg" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.1)", color: "var(--cr)" }}>{b} <span className="text-xs" style={{ color: "var(--cd)" }}>({getModels(b).length})</span></span>)}</div>
+            <div className="flex flex-wrap gap-2">{BRANDS.map(b => <span key={b} className="fb text-sm px-3 py-1.5 rounded-lg" style={{ background: "rgba(160,160,160,.06)", border: "1px solid rgba(160,160,160,.1)", color: "var(--cr)" }}>{b} <span className="text-xs" style={{ color: "var(--cd)" }}>({getModels(b).length})</span></span>)}</div>
           </Cd>
           {(data.customRefs || []).length > 0 && (
             <Cd className="p-4">
@@ -3409,7 +3412,7 @@ function TxEditForm({ tx, onSave, onClose }) {
   const u = (k, v) => sF(p => ({ ...p, [k]: v }));
   const go = async () => { if (saving) return; setSaving(true); try { const monto = isNeg ? -(Number(f.monto) || 0) : (Number(f.monto) || 0); await onSave(tx.id, { fecha: f.fecha, descripcion: f.descripcion, monto }); } catch(e) { alert("Error: " + e.message); } finally { setSaving(false); } };
   return <div className="space-y-4">
-    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)" }}>
+    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "rgba(160,160,160,.06)" }}>
       <Bd text={tipo} v={txC(tipo)} />
       <span className="fb text-xs" style={{ color: "var(--cd)" }}>ID: {tx.id?.slice(0, 8)}...</span>
       {tx.pieza_id && <span className="fb text-xs" style={{ color: "var(--cd)" }}>Pieza: {tx.pieza_id?.slice(0, 8)}...</span>}
@@ -3438,7 +3441,7 @@ function CapitalForm({ onSave, onClose, socios, invInfo: fi, myInvs, defaultFund
   };
   return <div className="space-y-4">
     {funds.length > 1 && <InvSel value={fund} onChange={setFund} label="¿A qué fondo?" funds={funds} invInfo={info} txs={txs} />}
-    {funds.length === 1 && <div className="fb text-xs p-3 rounded-xl" style={{ background: "rgba(201,169,110,.06)", color: "var(--gd)" }}>{info[funds[0]]?.icon} Fondo: {info[funds[0]]?.short}</div>}
+    {funds.length === 1 && <div className="fb text-xs p-3 rounded-xl" style={{ background: "rgba(160,160,160,.06)", color: "var(--gd)" }}>{info[funds[0]]?.icon} Fondo: {info[funds[0]]?.short}</div>}
     <Fl label="Fecha" req><input type="date" className="ti" value={fecha} onChange={e => setFecha(e.target.value)} /></Fl>
     <Fl label="Monto (MXN)" req><input type="number" className="ti" value={amt} onChange={e => setAmt(e.target.value)} /></Fl>
     <Fl label="Descripción"><input className="ti" value={desc} onChange={e => setDesc(e.target.value)} /></Fl>
@@ -3458,7 +3461,7 @@ function RetiroCapitalForm({ onSave, onClose, socios, invInfo: fi, myInvs, defau
     {funds.length > 1 && <InvSel value={fund} onChange={setFund} label="¿De qué fondo?" funds={funds} invInfo={info} txs={txs} />}
     <div className="grid grid-cols-2 gap-3">
       <div className="rounded-xl p-3 text-center" style={{ background: "rgba(96,165,250,.06)" }}><div className="fb text-xs" style={{ color: "var(--bl)" }}>Cash</div><div className="fd font-bold text-lg text-white">{fmxn(cash)}</div></div>
-      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(201,169,110,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Capital</div><div className="fd font-bold text-lg text-white">{fmxn(cap)}</div></div>
+      <div className="rounded-xl p-3 text-center" style={{ background: "rgba(160,160,160,.06)" }}><div className="fb text-xs" style={{ color: "var(--gd)" }}>Capital</div><div className="fd font-bold text-lg text-white">{fmxn(cap)}</div></div>
     </div>
     <Fl label="Fecha" req><input type="date" className="ti" value={fecha} onChange={e => setFecha(e.target.value)} /></Fl>
     <Fl label="Motivo" req><div className="grid grid-cols-3 gap-2">
@@ -3525,7 +3528,7 @@ function CorteForm({ onSave, onClose, socios, pieces, txs, cortes, costos }) {
             </div>
           </div>
         ))}
-        <div className="flex items-center gap-3 p-3 mt-2 rounded-xl" style={{ background: "rgba(201,169,110,.06)", border: "1px solid rgba(201,169,110,.1)" }}>
+        <div className="flex items-center gap-3 p-3 mt-2 rounded-xl" style={{ background: "rgba(160,160,160,.06)", border: "1px solid rgba(160,160,160,.1)" }}>
           <div className="flex-1"><span className="fd font-semibold text-white">Total</span></div>
           <div className="text-right">
             <div className="fb text-xs" style={{ color: "var(--cd)" }}>Costo: {fmxn(totalCost)}{totalGastosCorte > 0 ? ` + Gastos: ${fmxn(totalGastosCorte)}` : ""} → Ventas: {fmxn(totalSales)}</div>
@@ -3542,7 +3545,7 @@ function CorteForm({ onSave, onClose, socios, pieces, txs, cortes, costos }) {
           <div className="fb text-xs" style={{ color: s.color }}>{s.name} {s.participacion}%</div>
           <div className="fd font-bold text-lg text-white">{fmxn(splits[s.id] || 0)}</div>
         </div>))}
-        <div className="rounded-xl p-3" style={{ background: "rgba(201,169,110,.06)" }}>
+        <div className="rounded-xl p-3" style={{ background: "rgba(160,160,160,.06)" }}>
           <div className="fb text-xs" style={{ color: "var(--gd)" }}>Total</div>
           <div className="fd font-bold text-lg" style={{ color: "var(--gn)" }}>{fmxn(totalProfit)}</div>
         </div>
