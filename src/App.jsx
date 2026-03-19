@@ -353,10 +353,32 @@ function PhotoUploader({ pieceId, fotos, onUpload, onDelete, isNew, onOcrResult 
     setOcrLoading(null);
   };
   const pf = (fotos || []).filter(f => f.pieza_id === pieceId && !f.deleted_at);
+  const nextEmpty = PHOTO_POSITIONS.find(pos => !pf.find(f => f.posicion === pos.id));
+  const cameraRef = useRef(null);
+  const galleryRef = useRef(null);
+
   return <>
     {cropFile && <ImageCropper file={cropFile} onCrop={onCropDone} onCancel={() => { setCropFile(null); setCropPos(null); setCropReplace(null); }} />}
     <div className="rounded-xl p-4" style={{ background: "rgba(201,169,110,.04)", border: "1px solid rgba(201,169,110,.08)" }}>
       <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Fotografías del Reloj</div>
+
+      {/* Quick capture bar */}
+      {nextEmpty && (
+        <div className="flex gap-2 mb-4">
+          <label className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl cursor-pointer font-semibold text-sm transition-all hover:brightness-110" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)", border: "1px solid rgba(74,222,128,.15)" }}>
+            📸 Tomar Foto
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(nextEmpty.id, e.target.files[0], null); }} />
+          </label>
+          <label className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl cursor-pointer font-semibold text-sm transition-all hover:brightness-110" style={{ background: "rgba(201,169,110,.1)", color: "var(--gd)", border: "1px solid rgba(201,169,110,.15)" }}>
+            🖼 Galería
+            <input ref={galleryRef} type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(nextEmpty.id, e.target.files[0], null); }} />
+          </label>
+        </div>
+      )}
+      {pf.length > 0 && !nextEmpty && (
+        <div className="mb-3 fb text-xs text-center p-2 rounded-lg" style={{ background: "rgba(74,222,128,.04)", color: "var(--gn)" }}>✓ Todas las posiciones tienen foto ({pf.length}/6)</div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {PHOTO_POSITIONS.map(pos => {
           const ex = pf.find(f => f.posicion === pos.id);
@@ -369,11 +391,18 @@ function PhotoUploader({ pieceId, fotos, onUpload, onDelete, isNew, onOcrResult 
                 <label className="cursor-pointer text-white text-xs font-semibold px-3 py-1 rounded-lg" style={{ background: "rgba(255,255,255,.15)" }}>📷 Reemplazar<input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(pos.id, e.target.files[0], ex); }} /></label>
                 <button onClick={() => handleOcr(ex)} disabled={isOcr} className="text-xs font-semibold px-3 py-1 rounded-lg" style={{ background: "rgba(96,165,250,.2)", color: "#93C5FD" }}>{isOcr ? "⏳ Analizando..." : "🔍 Reconocer"}</button>
               </div>
-            </div> : <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 transition-all">
-              <span className="text-2xl mb-1">{isUp ? "⏳" : pos.icon}</span>
+            </div> : <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+              <span className="text-2xl">{isUp ? "⏳" : pos.icon}</span>
               <span className="fb text-xs text-center px-2" style={{ color: "var(--cd)" }}>{isUp ? "Subiendo..." : pos.label}</span>
-              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(pos.id, e.target.files[0], null); }} />
-            </label>}
+              <div className="flex gap-1.5">
+                <label className="cursor-pointer fb text-xs px-2 py-1 rounded-lg hover:brightness-125 transition-all" style={{ background: "rgba(74,222,128,.15)", color: "var(--gn)" }}>
+                  📸<input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(pos.id, e.target.files[0], null); }} />
+                </label>
+                <label className="cursor-pointer fb text-xs px-2 py-1 rounded-lg hover:brightness-125 transition-all" style={{ background: "rgba(201,169,110,.12)", color: "var(--gd)" }}>
+                  🖼<input type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(pos.id, e.target.files[0], null); }} />
+                </label>
+              </div>
+            </div>}
             <div className="absolute bottom-0 left-0 right-0 px-2 py-1 text-center" style={{ background: "rgba(0,0,0,.5)" }}><span className="fb text-xs" style={{ color: "var(--cd)" }}>{pos.label}</span></div>
           </div>;
         })}
@@ -1014,7 +1043,7 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
   const [combinedFin, setCombinedFin] = useState(false);
   const [newCapital, setNewCapital] = useState(0);
   const [newSupplier, setNewSupplier] = useState(null);
-  const [tab, setTab] = useState("id");
+  const [tab, setTab] = useState(piece ? "id" : "photos");
   const [aiResult, setAiResult] = useState(null);
   const [saving, setSaving] = useState(false);
   const fromFund = Math.max(0, (f.cost || 0) - newCapital);
@@ -1049,12 +1078,17 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
   ];
   const totalCostos = costosData.reduce((s, c) => s + (Number(c.monto) || 0), 0);
 
-  const TABS = [
+  const TABS = piece ? [
     { id: "id", l: "Reloj", icon: "🔍" },
     { id: "detail", l: "Detalles", icon: "📋" },
     { id: "photos", l: "Fotos", icon: "📸", count: localFotos.filter(ft => !ft.deleted_at).length },
     { id: "money", l: isCol ? "Compra" : "Adquisición", icon: "💰" },
-    ...(piece && !isCol ? [{ id: "costos", l: "Gastos", icon: "🧾", count: costosData.length }] : []),
+    ...(!isCol ? [{ id: "costos", l: "Gastos", icon: "🧾", count: costosData.length }] : []),
+  ] : [
+    { id: "photos", l: "Fotos", icon: "📸", count: localFotos.filter(ft => !ft.deleted_at).length },
+    { id: "id", l: "Reloj", icon: "🔍" },
+    { id: "detail", l: "Detalles", icon: "📋" },
+    { id: "money", l: isCol ? "Compra" : "Adquisición", icon: "💰" },
   ];
 
   return (
