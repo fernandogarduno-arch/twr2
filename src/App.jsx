@@ -47,7 +47,7 @@ const stor = {
 /* ═══ DB LAYER ═══ */
 const db = {
   async loadAll() {
-    const [pz, tx, ct, fo, cl, su, st, cr, sc, pr, cp, fn] = await Promise.all([
+    const [pz, tx, ct, fo, cl, su, st, cr, sc, pr, cp, fn, dl, cd] = await Promise.all([
       sb.from("piezas").select("*").order("created_at", { ascending: false }),
       sb.from("transacciones").select("*").order("fecha", { ascending: false }).order("created_at", { ascending: false }),
       sb.from("cortes").select("*").order("periodo", { ascending: false }),
@@ -60,6 +60,8 @@ const db = {
       sb.from("profiles").select("*").order("name"),
       sb.from("costos_pieza").select("*"),
       sb.from("fondos").select("*").eq("activo", true),
+      sb.from("dealers").select("*").order("name"),
+      sb.from("coleccion_docs").select("*"),
     ]);
     return {
       pieces: pz.data || [], txs: tx.data || [], cortes: ct.data || [],
@@ -70,6 +72,8 @@ const db = {
       profiles: pr.data || [],
       costos: cp.data || [],
       fondos: fn.data || [],
+      dealers: dl.data || [],
+      colDocs: cd.data || [],
     };
   },
   async loadDocs(entType, entId) {
@@ -1033,11 +1037,12 @@ function LoginScreen({ onLogin }) {
 /* ═══════════════════════════════════════════════════════════════════
    PIECE FORM — Full form with photos, docs, custom refs
    ═══════════════════════════════════════════════════════════════════ */
-function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier, userRole, invInfo: fi, myInvs, defaultFund, txs: txsProp, investors: investorsProp, mode: formMode }) {
+function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRefs, userId, suppliers, onSaveSupplier, userRole, invInfo: fi, myInvs, defaultFund, txs: txsProp, investors: investorsProp, mode: formMode, dealers: dealersProp, colDocs: colDocsProp }) {
   const isCol = formMode === "coleccion";
+  const [newDealer, setNewDealer] = useState(null);
   const invInfo = fi || {};
   const autoSku = piece?.sku || genSku(allPieces);
-  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", inversionista_id: defaultFund || null, entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "", metodo_pago: "Efectivo MXN", whatsapp_pieza: "", es_referenciada: false, referenciada_por: "", referenciada_comision: 0, tipo_pieza: isCol ? "coleccion" : "inventario", purchase_from: "", current_value: 0, insured_value: 0, col_status: isCol ? "En colección" : null };
+  const blank = { id: uid(), sku: autoSku, name: "", brand: "", model: "", ref: "", serial: "", condition: "Excelente", auth_level: "SERIAL", fondo_id: "FIC", inversionista_id: defaultFund || null, entry_type: "adquisicion", entry_date: td(), cost: 0, price_dealer: 0, price_asked: 0, price_trade: 0, status: "Disponible", stage: "inventario", notes: "", publish_catalog: false, catalog_description: "", dial_color: "", bezel_type: "", case_size: "", strap_type: "", supplier_id: "", metodo_pago: "Efectivo MXN", whatsapp_pieza: "", es_referenciada: false, referenciada_por: "", referenciada_comision: 0, tipo_pieza: isCol ? "coleccion" : "inventario", purchase_from: "", current_value: 0, insured_value: 0, col_status: isCol ? "En colección" : null, dealer_id: "" };
   const [f, sF] = useState(piece ? { ...blank, ...piece } : blank);
   const [localFotos, setLocalFotos] = useState(fotosProp || []);
   const [combinedFin, setCombinedFin] = useState(false);
@@ -1247,13 +1252,41 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
           {/* ═══ COLLECTION MODE ═══ */}
           {isCol && (<>
             <div className="rounded-xl p-4" style={{ background: "rgba(160,160,160,.04)", border: "1px solid rgba(160,160,160,.08)" }}>
-              <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Información de Compra</div>
-              <div className="grid grid-cols-2 gap-3">
-                <Fl label="Comprado a"><input className="ti" value={f.purchase_from || ""} onChange={e => u("purchase_from", e.target.value)} placeholder="AD, dealer, particular, herencia..." /></Fl>
-                <Fl label="Fecha de Compra" req><input type="date" className="ti" value={f.entry_date} onChange={e => u("entry_date", e.target.value)} /></Fl>
-              </div>
+              <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>Origen de la Pieza</div>
+              {!newDealer ? (
+                <div className="flex gap-2">
+                  <select className="ti flex-1" value={f.dealer_id || ""} onChange={e => u("dealer_id", e.target.value)}>
+                    <option value="">— Seleccionar dealer —</option>
+                    {(dealersProp || []).filter(d => d.owner_id === userId).map(d => <option key={d.id} value={d.id}>{d.name} ({d.type}) {d.city ? `· ${d.city}` : ""}</option>)}
+                  </select>
+                  <button type="button" onClick={() => setNewDealer({ name: "", type: "AD", city: "", country: "México", phone: "", website: "", notes: "" })} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap" style={{ background: "rgba(160,160,160,.12)", color: "var(--cr)" }}>+ Nuevo</button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <input className="ti" placeholder="Nombre del dealer *" value={newDealer.name} onChange={e => setNewDealer(p => ({ ...p, name: e.target.value }))} />
+                    <select className="ti" value={newDealer.type} onChange={e => setNewDealer(p => ({ ...p, type: e.target.value }))}>
+                      {["AD","Grey Market","Particular","Subasta","Herencia","Regalo","Online","Otro"].map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <input className="ti" placeholder="Ciudad" value={newDealer.city} onChange={e => setNewDealer(p => ({ ...p, city: e.target.value }))} />
+                    <input className="ti" placeholder="Teléfono" value={newDealer.phone} onChange={e => setNewDealer(p => ({ ...p, phone: e.target.value }))} />
+                    <input className="ti" placeholder="Website" value={newDealer.website} onChange={e => setNewDealer(p => ({ ...p, website: e.target.value }))} />
+                    <input className="ti" placeholder="Notas" value={newDealer.notes} onChange={e => setNewDealer(p => ({ ...p, notes: e.target.value }))} />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={async () => {
+                      if (!newDealer.name) return alert("Nombre requerido");
+                      try { const { data, error } = await sb.from("dealers").insert({ ...newDealer, owner_id: userId }).select(); if (error) throw error; u("dealer_id", data[0].id); setNewDealer(null); } catch(e) { alert("Error: " + e.message); }
+                    }} className="fb text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: "rgba(74,222,128,.12)", color: "var(--gn)" }}>✓ Guardar</button>
+                    <button type="button" onClick={() => setNewDealer(null)} className="fb text-xs px-3 py-1.5 rounded-lg" style={{ color: "var(--cd)" }}>Cancelar</button>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3 mt-3">
+                <Fl label="Fecha de Compra" req><input type="date" className="ti" value={f.entry_date} onChange={e => u("entry_date", e.target.value)} /></Fl>
                 <Fl label="Método de Pago"><select className="ti" value={f.metodo_pago || "Efectivo MXN"} onChange={e => u("metodo_pago", e.target.value)}>{PAYS.filter(p => p !== "Trade" && p !== "Trade+Cash").map(p => <option key={p} value={p}>{p}</option>)}</select></Fl>
+              </div>
+              <div className="grid grid-cols-1 gap-3 mt-3">
                 <Fl label="Condición al comprar"><select className="ti" value={f.condition} onChange={e => u("condition", e.target.value)}>{["Nuevo (Unworn)","Excelente","Muy Bueno","Bueno","Regular","Necesita servicio"].map(c => <option key={c} value={c}>{c}</option>)}</select></Fl>
               </div>
             </div>
@@ -1274,6 +1307,56 @@ function PcForm({ piece, onSave, onClose, allPieces, fotos: fotosProp, customRef
                 </div>
               ); })()}
             </div>
+            {/* ═══ DOCUMENTS ═══ */}
+            {piece && <div className="rounded-xl p-4" style={{ background: "rgba(160,160,160,.04)", border: "1px solid rgba(160,160,160,.08)" }}>
+              <div className="fb text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--gd)" }}>📄 Documentos</div>
+              {(() => {
+                const pDocs = (colDocsProp || []).filter(d => d.pieza_id === piece?.id);
+                const DOC_TYPES = [
+                  { v: "warranty", l: "📋 Garantía", c: "#4ADE80" },
+                  { v: "ewarranty", l: "📱 eWarranty", c: "#60A5FA" },
+                  { v: "invoice", l: "🧾 Factura", c: "#FBBF24" },
+                  { v: "receipt", l: "🧾 Comprobante", c: "#FB923C" },
+                  { v: "certificate", l: "🏅 Certificado", c: "#C084FC" },
+                  { v: "appraisal", l: "💎 Avalúo", c: "#A0A0A0" },
+                  { v: "insurance", l: "🛡 Seguro", c: "#F472B6" },
+                  { v: "service_record", l: "🔧 Servicio", c: "#94A3B8" },
+                  { v: "other", l: "📎 Otro", c: "var(--cd)" },
+                ];
+                return <>
+                  {pDocs.length > 0 && <div className="space-y-2 mb-3">{pDocs.map(d => {
+                    const dt = DOC_TYPES.find(t => t.v === d.doc_type) || DOC_TYPES[8];
+                    return <div key={d.id} className="flex items-center gap-2 p-2 rounded-lg" style={{ background: "rgba(255,255,255,.03)" }}>
+                      <span className="text-sm">{dt.l.split(" ")[0]}</span>
+                      <span className="fb text-xs font-semibold" style={{ color: dt.c }}>{d.label || dt.l}</span>
+                      {d.doc_date && <span className="fb text-xs" style={{ color: "var(--cd)" }}>{d.doc_date}</span>}
+                      {d.url && <a href={d.url} target="_blank" rel="noopener" className="fb text-xs ml-auto" style={{ color: "var(--bl)" }}>Ver ↗</a>}
+                      <button onClick={async () => { if (confirm("¿Eliminar documento?")) { await sb.from("coleccion_docs").delete().eq("id", d.id); if (onClose) onClose(); }}} className="fb text-xs p-1 hover:bg-white/5 rounded" style={{ color: "var(--rd)" }}>✕</button>
+                    </div>;
+                  })}</div>}
+                  <div className="grid grid-cols-3 gap-2">
+                    {DOC_TYPES.slice(0, 6).map(dt => (
+                      <label key={dt.v} className="flex flex-col items-center gap-1 p-3 rounded-xl cursor-pointer hover:bg-white/5 transition-all" style={{ border: "1px dashed rgba(255,255,255,.1)" }}>
+                        <span className="text-lg">{dt.l.split(" ")[0]}</span>
+                        <span className="fb text-xs" style={{ color: dt.c }}>{dt.l.split(" ").slice(1).join(" ")}</span>
+                        <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
+                          const file = e.target.files?.[0]; if (!file) return;
+                          try {
+                            const path = `col-docs/${piece.id}/${dt.v}_${Date.now()}.${file.name.split(".").pop()}`;
+                            const { error: ue } = await sb.storage.from("documentos").upload(path, file, { cacheControl: "31536000", upsert: true, contentType: file.type });
+                            if (ue) throw ue;
+                            const { data: { publicUrl } } = sb.storage.from("documentos").getPublicUrl(path);
+                            await sb.from("coleccion_docs").insert({ pieza_id: piece.id, owner_id: userId, doc_type: dt.v, label: dt.l, url: publicUrl, storage_path: path, doc_date: td() });
+                            alert("✅ Documento guardado"); if (onClose) onClose();
+                          } catch(err) { alert("Error: " + err.message); }
+                        }} />
+                      </label>
+                    ))}
+                  </div>
+                  <div className="fb text-xs mt-2 text-center" style={{ color: "var(--cd)" }}>Toca un tipo para subir foto o PDF del documento</div>
+                </>;
+              })()}
+            </div>}
           </>)}
           {/* ═══ INVENTORY MODE ═══ */}
           {!isCol && (<>
@@ -3131,8 +3214,8 @@ export default function App() {
       <Md open={modal === "ac"} onClose={cm} title="Inyección de Capital">{<CapitalForm onSave={hCap} onClose={cm} socios={data.socios} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? "FIC" : activeInv} txs={data.txs} />}</Md>
       <Md open={modal === "rc"} onClose={cm} title="Retiro de Capital">{<RetiroCapitalForm onSave={hRetiro} onClose={cm} socios={data.socios} invInfo={invInfo} myInvs={myInvs} defaultFund={activeInv === "ALL" ? "FIC" : activeInv} txs={data.txs} />}</Md>
       <Md open={!!editTx} onClose={() => setEditTx(null)} title={"Editar Transacción — " + (editTx?.tipo || "")}>{editTx && <TxEditForm tx={editTx} onSave={hUpdateTx} onClose={() => setEditTx(null)} />}</Md>
-      <Md open={modal === "col_add"} onClose={cm} title="Añadir a Mi Colección" wide><PcForm onSave={async (p) => { const clean = { ...p }; delete clean._pendingFotos; delete clean._newCapital; delete clean.metodo_pago; clean.tipo_pieza = "coleccion"; clean.col_status = "En colección"; clean.inversionista_id = user?.id; clean.fondo_id = "FIC"; ["cost","current_value","insured_value","price_dealer","price_asked","price_trade"].forEach(k => { clean[k] = Number(clean[k]) || 0; }); if (!clean.current_value) clean.current_value = clean.cost; ["supplier_id","ref_id","socio_aporta_id","client_id","validated_by","exit_fund","trade_ref","devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); const { error } = await sb.from("piezas").insert(clean); if (error) throw error; showToast("Pieza añadida a tu colección"); await refresh(); cm(); }} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} invInfo={invInfo} myInvs={myInvs} defaultFund={user?.id} txs={data.txs} investors={investors} mode="coleccion" /></Md>
-      <Md open={modal === "col_edit"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={async (p) => { const id = p.id; const clean = { ...p }; delete clean.id; delete clean._pendingFotos; delete clean._newCapital; delete clean.metodo_pago; ["cost","current_value","insured_value","price_dealer","price_asked","price_trade"].forEach(k => { clean[k] = Number(clean[k]) || 0; }); ["supplier_id","ref_id","socio_aporta_id","client_id","validated_by","exit_fund","trade_ref","devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); const { error } = await sb.from("piezas").update(clean).eq("id", id); if (error) throw error; showToast("Pieza actualizada"); await refresh(); cm(); }} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} invInfo={invInfo} myInvs={myInvs} defaultFund={user?.id} txs={data.txs} investors={investors} mode="coleccion" />}</Md>
+      <Md open={modal === "col_add"} onClose={cm} title="Añadir a Mi Colección" wide><PcForm onSave={async (p) => { const clean = { ...p }; delete clean._pendingFotos; delete clean._newCapital; delete clean.metodo_pago; clean.tipo_pieza = "coleccion"; clean.col_status = "En colección"; clean.inversionista_id = user?.id; clean.fondo_id = "FIC"; ["cost","current_value","insured_value","price_dealer","price_asked","price_trade"].forEach(k => { clean[k] = Number(clean[k]) || 0; }); if (!clean.current_value) clean.current_value = clean.cost; ["supplier_id","ref_id","socio_aporta_id","client_id","validated_by","exit_fund","trade_ref","devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); if (clean.dealer_id === "") clean.dealer_id = null; const { error } = await sb.from("piezas").insert(clean); if (error) throw error; showToast("Pieza añadida a tu colección"); await refresh(); cm(); }} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} invInfo={invInfo} myInvs={myInvs} defaultFund={user?.id} txs={data.txs} investors={investors} mode="coleccion" dealers={data.dealers} colDocs={data.colDocs} /></Md>
+      <Md open={modal === "col_edit"} onClose={cm} title={"Editar — " + (sel?.name || "")} wide>{sel && <PcForm piece={sel} onSave={async (p) => { const id = p.id; const clean = { ...p }; delete clean.id; delete clean._pendingFotos; delete clean._newCapital; delete clean.metodo_pago; ["cost","current_value","insured_value","price_dealer","price_asked","price_trade"].forEach(k => { clean[k] = Number(clean[k]) || 0; }); ["supplier_id","ref_id","socio_aporta_id","client_id","validated_by","exit_fund","trade_ref","devolucion_de"].forEach(k => { if (clean[k] === "" || clean[k] === undefined) clean[k] = null; }); if (clean.dealer_id === "") clean.dealer_id = null; const { error } = await sb.from("piezas").update(clean).eq("id", id); if (error) throw error; showToast("Pieza actualizada"); await refresh(); cm(); }} onClose={cm} allPieces={data.pieces} fotos={data.fotos} customRefs={data.customRefs} userId={user?.id} suppliers={data.suppliers} onSaveSupplier={async (s) => { await db.saveSupplier(s); await refresh(); }} userRole={myProfile?.role} invInfo={invInfo} myInvs={myInvs} defaultFund={user?.id} txs={data.txs} investors={investors} mode="coleccion" dealers={data.dealers} colDocs={data.colDocs} />}</Md>
 
       {/* Post-Devolution Action Panel */}
       <Md open={modal === "post_dev"} onClose={cm} title="Pieza Devuelta — ¿Qué hacer?">
