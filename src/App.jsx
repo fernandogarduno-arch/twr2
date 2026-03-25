@@ -111,7 +111,7 @@ const db = {
   async saveSetting(key, value) { const { error } = await sb.from("app_settings").upsert({ key, value, updated_at: new Date().toISOString() }); if (error) throw error; },
   async saveCustomRef(r) { const { data, error } = await sb.from("custom_referencias").upsert(r, { onConflict: "brand,model,ref_number" }).select(); if (error) throw error; return data?.[0]; },
   async loadCatalogPublic() {
-    const { data } = await sb.from("piezas").select("*").eq("publish_catalog", true).order("catalog_order");
+    const { data } = await sb.from("piezas").select("*").eq("publish_catalog", true).eq("status", "Disponible").eq("tipo_pieza", "inventario").order("catalog_order");
     const { data: fotos } = await sb.from("pieza_fotos").select("*").is("deleted_at", null);
     const { data: stData } = await sb.from("app_settings").select("*").in("key", ["whatsapp_number", "business_name", "catalog_config"]);
     return { pieces: data || [], fotos: fotos || [], settings: Object.fromEntries((stData || []).map(s => [s.key, s.value])) };
@@ -393,8 +393,9 @@ function PhotoUploader({ pieceId, fotos, onUpload, onDelete, isNew, onOcrResult 
             {ex ? <div className="w-full h-full relative">
               <img src={ex.url} alt={pos.label} className="w-full h-full object-cover" />
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 opacity-0 hover:opacity-100 transition-all" style={{ background: "rgba(0,0,0,.6)" }}>
-                <label className="cursor-pointer text-white text-xs font-semibold px-3 py-1 rounded-lg" style={{ background: "rgba(255,255,255,.15)" }}>📷 Reemplazar<input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(pos.id, e.target.files[0], ex); }} /></label>
-                <button onClick={() => handleOcr(ex)} disabled={isOcr} className="text-xs font-semibold px-3 py-1 rounded-lg" style={{ background: "rgba(96,165,250,.2)", color: "#93C5FD" }}>{isOcr ? "⏳ Analizando..." : "🔍 Reconocer"}</button>
+                <label className="cursor-pointer text-white text-xs font-semibold px-3 py-1.5 rounded-lg" style={{ background: "rgba(255,255,255,.15)" }}>📷 Reemplazar<input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) onFile(pos.id, e.target.files[0], ex); }} /></label>
+                <button onClick={() => handleOcr(ex)} disabled={isOcr} className="text-xs font-semibold px-3 py-1.5 rounded-lg" style={{ background: "rgba(96,165,250,.2)", color: "#93C5FD" }}>{isOcr ? "⏳ Analizando..." : "🔍 Reconocer"}</button>
+                <button onClick={async () => { if (!confirm(`¿Eliminar foto de ${pos.label}?`)) return; try { if (onDelete) await onDelete(ex); } catch(e) { alert("Error: " + e.message); } }} className="text-xs font-semibold px-3 py-1.5 rounded-lg" style={{ background: "rgba(251,113,133,.2)", color: "#FB7185" }}>🗑 Eliminar</button>
               </div>
             </div> : <div className="w-full h-full flex flex-col items-center justify-center gap-2">
               <span className="text-2xl">{isUp ? "⏳" : pos.icon}</span>
@@ -2135,6 +2136,10 @@ export default function App() {
   const [txFrom, setTxFrom] = useState("");
   const [txTo, setTxTo] = useState("");
   const [invSort, setInvSort] = useState({ col: "status", dir: "asc" });
+  const [invBrand, setInvBrand] = useState("ALL");
+  const [invStatus, setInvStatus] = useState("ALL");
+  const [colSort, setColSort] = useState({ col: "brand", dir: "asc" });
+  const [colBrand, setColBrand] = useState("ALL");
 
   const showToast = (msg, type = "ok") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
@@ -2234,13 +2239,26 @@ export default function App() {
     };
   }, [data, activeInv, invInfo]);
 
+  const invBrands = useMemo(() => {
+    if (!data) return [];
+    const brands = [...new Set((data.pieces || []).filter(p => p.tipo_pieza !== "coleccion").map(p => p.brand).filter(Boolean))].sort();
+    return brands;
+  }, [data]);
+
+  const colBrands = useMemo(() => {
+    if (!data) return [];
+    return [...new Set((data.pieces || []).filter(p => p.tipo_pieza === "coleccion").map(p => p.brand).filter(Boolean))].sort();
+  }, [data]);
+
   const fp = useMemo(() => {
     if (!data) return [];
     const s = q.toLowerCase();
     const filtered = (data.pieces || []).filter(p => {
       if (p.tipo_pieza === "coleccion") return false;
       if (activeInv !== "ALL" && p.inversionista_id !== activeInv) return false;
-      return !s || (p.name || "").toLowerCase().includes(s) || (p.brand || "").toLowerCase().includes(s) || (p.sku || "").toLowerCase().includes(s) || (p.ref || "").toLowerCase().includes(s);
+      if (invBrand !== "ALL" && p.brand !== invBrand) return false;
+      if (invStatus !== "ALL" && p.status !== invStatus) return false;
+      return !s || (p.name || "").toLowerCase().includes(s) || (p.brand || "").toLowerCase().includes(s) || (p.sku || "").toLowerCase().includes(s) || (p.ref || "").toLowerCase().includes(s) || (p.serial || "").toLowerCase().includes(s);
     });
     const statusOrder = { "Disponible": 0, "Vendido": 1, "Devuelto": 2, "Corregido": 3 };
     return filtered.sort((a, b) => {
@@ -2252,12 +2270,13 @@ export default function App() {
       else if (c === "name") { va = (a.name || "").toLowerCase(); vb = (b.name || "").toLowerCase(); }
       else if (c === "sku") { va = a.sku || ""; vb = b.sku || ""; }
       else if (c === "entry_type") { va = a.entry_type || ""; vb = b.entry_type || ""; }
+      else if (c === "entry_date") { va = a.entry_date || ""; vb = b.entry_date || ""; }
       else { va = a[c] ?? ""; vb = b[c] ?? ""; }
       if (va < vb) return invSort.dir === "asc" ? -1 : 1;
       if (va > vb) return invSort.dir === "asc" ? 1 : -1;
       return 0;
     });
-  }, [data, q, activeInv, invSort]);
+  }, [data, q, activeInv, invSort, invBrand, invStatus]);
 
   /* ═══ HANDLERS ═══ */
   const hAddPc = useCallback(async (p) => {
@@ -2526,6 +2545,22 @@ export default function App() {
       setModal("post_dev");
     } catch (e) { alert("Error: " + e.message); }
   }, [refresh, cm, data]);
+
+  const hDeletePiece = useCallback(async (piece) => {
+    const isCol = piece.tipo_pieza === "coleccion";
+    const label = isCol ? "de tu colección" : "del inventario";
+    const hasTx = (data?.txs || []).some(t => t.pieza_id === piece.id);
+    if (hasTx && !isCol) { alert(`No se puede eliminar "${piece.name}" porque tiene transacciones asociadas. Usa "Corregir" en su lugar.`); return; }
+    if (!confirm(`¿Eliminar "${piece.name}" ${label}?\n\n${isCol ? "Se borrarán también sus documentos y fotos." : "Esta acción no se puede deshacer."}\n\nSKU: ${piece.sku}`)) return;
+    try {
+      await sb.from("pieza_fotos").delete().eq("pieza_id", piece.id);
+      await sb.from("coleccion_docs").delete().eq("pieza_id", piece.id);
+      const { error } = await sb.from("piezas").delete().eq("id", piece.id);
+      if (error) throw error;
+      showToast(`"${piece.name}" eliminada`);
+      await refresh();
+    } catch (e) { alert("Error: " + e.message); }
+  }, [data, refresh]);
 
   const hCorregir = useCallback(async (piece) => {
     const txs = data?.txs || [];
@@ -2836,7 +2871,19 @@ export default function App() {
                 {myInvs.map(fk => <button key={fk} onClick={() => setActiveInv(fk)} className="fb text-xs font-semibold px-3 py-2 rounded-lg whitespace-nowrap" style={activeInv === fk ? { background: "rgba(160,160,160,.15)", color: "var(--cr)" } : { color: "var(--cd)" }}>{invInfo[fk]?.icon} {invInfo[fk]?.short || fk}</button>)}
               </div>
             )}
-            <div className="relative"><div className="absolute left-3 top-3" style={{ color: "var(--cd)" }}><Ico d={IC.srch} s={16} /></div><input className="ti" style={{ paddingLeft: 36 }} placeholder="Buscar..." value={q} onChange={e => setQ(e.target.value)} /></div>
+            <div className="relative"><div className="absolute left-3 top-3" style={{ color: "var(--cd)" }}><Ico d={IC.srch} s={16} /></div><input className="ti" style={{ paddingLeft: 36 }} placeholder="Buscar por nombre, marca, SKU, ref, serial..." value={q} onChange={e => setQ(e.target.value)} /></div>
+            <div className="flex gap-2 flex-wrap items-center">
+              <select className="ti fb text-xs" style={{ width: "auto", padding: "6px 10px", fontSize: 12 }} value={invBrand} onChange={e => setInvBrand(e.target.value)}>
+                <option value="ALL">Todas las marcas ({invBrands.length})</option>
+                {invBrands.map(b => <option key={b} value={b}>{b} ({fp.filter(p => p.brand === b).length || (data?.pieces || []).filter(p => p.tipo_pieza !== "coleccion" && p.brand === b).length})</option>)}
+              </select>
+              <select className="ti fb text-xs" style={{ width: "auto", padding: "6px 10px", fontSize: 12 }} value={invStatus} onChange={e => setInvStatus(e.target.value)}>
+                <option value="ALL">Todos los status</option>
+                {["Disponible", "Vendido", "Devuelto", "Corregido"].map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {(invBrand !== "ALL" || invStatus !== "ALL" || q) && <button onClick={() => { setInvBrand("ALL"); setInvStatus("ALL"); setQ(""); }} className="fb text-xs px-2 py-1 rounded-lg" style={{ color: "var(--rd)", background: "rgba(251,113,133,.08)" }}>✕ Limpiar filtros</button>}
+              <span className="fb text-xs ml-auto" style={{ color: "var(--cd)" }}>{fp.length} pieza{fp.length !== 1 ? "s" : ""}</span>
+            </div>
             <div className="flex gap-2 flex-wrap">
               <span className="fb text-xs py-1" style={{ color: "var(--cd)" }}>Ordenar:</span>
               {[
@@ -2845,6 +2892,8 @@ export default function App() {
                 { col: "brand", label: "Marca" },
                 { col: "name", label: "Nombre" },
                 { col: "sku", label: "SKU" },
+                { col: "entry_date", label: "Fecha" },
+                { col: "entry_type", label: "Tipo" },
               ].map(s => <button key={s.col} onClick={() => setInvSort(prev => ({ col: s.col, dir: prev.col === s.col && prev.dir === "asc" ? "desc" : "asc" }))} className="fb text-xs px-3 py-1 rounded-full transition-all" style={{ background: invSort.col === s.col ? "rgba(160,160,160,.15)" : "rgba(255,255,255,.04)", color: invSort.col === s.col ? "var(--gd)" : "var(--cd)", border: invSort.col === s.col ? "1px solid rgba(160,160,160,.25)" : "1px solid rgba(255,255,255,.06)" }}>{s.label} {invSort.col === s.col ? (invSort.dir === "asc" ? "↑" : "↓") : ""}</button>)}
             </div>
             <Cd>
@@ -2856,6 +2905,7 @@ export default function App() {
                   { col: "fondo_id", label: "Origen" },
                   { col: "cost", label: "Costo", r: true },
                   { col: "price_asked", label: "Lista", r: true },
+                  { col: "entry_date", label: "Fecha" },
                   { col: "status", label: "Status" },
                 ].map(h => <th key={h.col} onClick={() => setInvSort(prev => ({ col: h.col, dir: prev.col === h.col && prev.dir === "asc" ? "desc" : "asc" }))} className="px-3 py-2.5 fb text-xs font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-white transition-colors" style={{ color: invSort.col === h.col ? "var(--gd)" : "var(--cd)", textAlign: h.r ? "right" : "left", borderBottom: invSort.col === h.col ? "2px solid var(--gd)" : "1px solid rgba(255,255,255,.06)" }}>{h.label} {invSort.col === h.col ? (invSort.dir === "asc" ? "↑" : "↓") : ""}</th>)}<TH></TH></tr></thead>
                   <tbody>{fp.map(p => (
@@ -2865,6 +2915,7 @@ export default function App() {
                       <TD><Bd text={etLabel(p.entry_type)} v={p.entry_type === "trade_in" ? "gold" : "blue"} /></TD>
                       <TD><Bd text={invInfo[p.fondo_id]?.short || p.fondo_id || "—"} v="gold" /></TD>
                       <TD r>{fmxn(p.cost)}</TD><TD r a="var(--gd)">{fmxn(p.price_asked)}</TD>
+                      <TD><span className="fb text-xs" style={{ color: "var(--cd)" }}>{p.entry_date || "—"}</span></TD>
                       <TD><Bd text={p.status === "Vendido" && p.exit_type === "trade_out" ? "Trade Out" : p.status === "Vendido" ? "Vendido ✓" : p.status} v={p.status === "Disponible" ? "green" : p.exit_type === "trade_out" ? "gold" : p.status === "Vendido" ? "purple" : p.status === "Devuelto" ? "red" : p.status === "Corregido" ? "default" : "default"} /></TD>
                       <TD>
                         <div className="flex gap-1">
@@ -2876,6 +2927,7 @@ export default function App() {
                           {p.status === "Vendido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }} onClick={() => hDevolucion(p)} title={p.exit_type === "trade_out" ? "↩ Devolver trade — rehabilita esta pieza y marca las entrantes como devueltas" : "↩ Devolver venta — regresa la pieza a inventario y reversa el ingreso"}>↩</button>}
                           {p.status !== "Corregido" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#F59E0B" }} onClick={() => hCorregir(p)} title="⊘ Corregir — anula esta entrada con transacciones inversas (no borra nada)">⊘</button>}
                           {p.status === "Disponible" && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#25D366" }} onClick={() => { const msg = encodeURIComponent(`Hola! Te comparto esta pieza disponible:\n\n*${p.brand} ${p.model}*\nRef: ${p.ref || "N/A"}\nPrecio: ${fmxn(p.price_asked)}\n\nMy Watch Vault — Mérida, Yucatán\nhttps://mywatchvault.app/catalog`); window.open(`https://wa.me/?text=${msg}`, "_blank"); }} title="📱 Compartir por WhatsApp — envía link con datos de la pieza">📱</button>}
+                          {can(myProfile?.role, "del") && <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: "#FB7185" }} onClick={() => hDeletePiece(p)} title="🗑 Eliminar pieza — borra permanentemente (solo si no tiene transacciones)">🗑</button>}
                         </div>
                       </TD>
                     </tr>
@@ -3173,7 +3225,7 @@ export default function App() {
         )}
 
         {/* ═══ CATALOGS ═══ */}
-        {page === "catalogs" && <CatalogsSection data={data} refresh={refresh} showToast={showToast} db={db} />}
+        {page === "catalogs" && <CatalogsSection data={data} refresh={refresh} showToast={showToast} db={db} userId={user?.id} userRole={myProfile?.role} />}
 
         {/* ═══ REPORTS ═══ */}
         {page === "reports" && (
@@ -3347,8 +3399,9 @@ function AuditLogViewer() {
   );
 }
 
-function CatalogsSection({ data, refresh, showToast, db }) {
-  const [catTab, setCatTab] = useState("proveedores");
+function CatalogsSection({ data, refresh, showToast, db, userId, userRole }) {
+  const isUserOnly = userRole === "user";
+  const [catTab, setCatTab] = useState(isUserOnly ? "personal" : "proveedores");
   const [editItem, setEditItem] = useState(null);
   const [search, setSearch] = useState("");
 
@@ -3362,13 +3415,62 @@ function CatalogsSection({ data, refresh, showToast, db }) {
 
   return (
     <div className="space-y-5 au">
-      <h1 className="fd text-2xl md:text-3xl font-bold text-white">Catálogos</h1>
+      <h1 className="fd text-2xl md:text-3xl font-bold text-white">{isUserOnly ? "Mi Catálogo" : "Catálogos"}</h1>
       {/* Tabs */}
       <div className="flex gap-2 flex-wrap">
-        {[{id:"proveedores",l:"Proveedores",n:data.suppliers?.length||0},{id:"clientes",l:"Clientes",n:data.clients?.length||0},{id:"marcas",l:"Marcas & Modelos",n:BRANDS.length},{id:"catalogo",l:"Catálogo Público"}].map(t =>
+        {[
+          { id: "personal", l: "Mi Catálogo", show: true },
+          { id: "proveedores", l: "Proveedores", n: data.suppliers?.length || 0, show: !isUserOnly },
+          { id: "clientes", l: "Clientes", n: data.clients?.length || 0, show: !isUserOnly },
+          { id: "marcas", l: "Marcas & Modelos", n: BRANDS.length, show: true },
+          { id: "catalogo", l: "Catálogo Público", show: !isUserOnly },
+        ].filter(t => t.show).map(t =>
           <button key={t.id} onClick={() => { setCatTab(t.id); setSearch(""); setEditItem(null); }} className="fb text-sm px-4 py-2 rounded-lg transition-all" style={catTab === t.id ? { background: "rgba(160,160,160,.15)", color: "var(--cr)", fontWeight: 600 } : { background: "rgba(255,255,255,.03)", color: "var(--cd)" }}>{t.l} {t.n != null && <span className="ml-1 text-xs">({t.n})</span>}</button>
         )}
       </div>
+
+      {/* ─── MI CATÁLOGO PERSONAL ─── */}
+      {catTab === "personal" && (() => {
+        const myPieces = (data.pieces || []).filter(p => p.tipo_pieza === "coleccion" && p.inversionista_id === userId && (p.col_status === "En colección" || (!p.col_status && p.status === "Disponible")));
+        const fotos = data.fotos || [];
+        const filtered = myPieces.filter(p => !search || (p.name || "").toLowerCase().includes(search.toLowerCase()) || (p.brand || "").toLowerCase().includes(search.toLowerCase()) || (p.ref || "").toLowerCase().includes(search.toLowerCase()));
+        const brands = [...new Set(myPieces.map(p => p.brand).filter(Boolean))].sort();
+        return <div className="space-y-4">
+          <div className="fb text-sm" style={{ color: "var(--cd)" }}>Tu colección personal de relojes. Vista galería sin precios — ideal para compartir.</div>
+          <div className="relative"><div className="absolute left-3 top-3" style={{ color: "var(--cd)" }}><Ico d={IC.srch} s={16} /></div><input className="ti" style={{ paddingLeft: 36 }} placeholder="Buscar en mi colección..." value={search} onChange={e => setSearch(e.target.value)} /></div>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => setSearch("")} className="fb text-xs px-3 py-1.5 rounded-full" style={!search ? { background: "rgba(160,160,160,.15)", color: "var(--cr)" } : { color: "var(--cd)", background: "rgba(255,255,255,.04)" }}>Todas ({myPieces.length})</button>
+            {brands.map(b => <button key={b} onClick={() => setSearch(b)} className="fb text-xs px-3 py-1.5 rounded-full" style={search === b ? { background: "rgba(160,160,160,.15)", color: "var(--cr)" } : { color: "var(--cd)", background: "rgba(255,255,255,.04)" }}>{b} ({myPieces.filter(p => p.brand === b).length})</button>)}
+          </div>
+          {filtered.length === 0 ? (
+            <Cd className="p-10 text-center"><div className="text-4xl mb-3">⌚</div><div className="fd text-lg font-semibold text-white">No hay piezas</div><div className="fb text-sm" style={{ color: "var(--cd)" }}>Añade relojes en "Mi Colección" para verlos aquí.</div></Cd>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filtered.map(p => {
+                const pf = fotos.filter(f => f.pieza_id === p.id && !f.deleted_at);
+                const mainFoto = pf.find(f => f.posicion === "dial") || pf.find(f => f.posicion === "full") || pf[0];
+                return <Cd key={p.id} className="overflow-hidden">
+                  <div className="aspect-square relative" style={{ background: "rgba(255,255,255,.02)" }}>
+                    {mainFoto ? <img src={mainFoto.url} alt={p.name} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><span className="text-4xl opacity-20">⌚</span></div>}
+                    {pf.length > 1 && <div className="absolute bottom-2 right-2 fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(0,0,0,.6)", color: "white" }}>📷 {pf.length}</div>}
+                  </div>
+                  <div className="p-4">
+                    <div className="fb text-xs uppercase tracking-wider mb-1" style={{ color: "var(--gd)" }}>{p.brand}</div>
+                    <div className="fd text-base font-semibold text-white leading-tight">{p.model || p.name}</div>
+                    {p.ref && <div className="fb text-xs mt-1" style={{ color: "var(--cd)" }}>Ref. {p.ref}</div>}
+                    <div className="flex gap-2 mt-2 flex-wrap">
+                      {p.condition && <span className="fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,.05)", color: "var(--cd)" }}>{p.condition}</span>}
+                      {p.strap_type && <span className="fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,.05)", color: "var(--cd)" }}>{p.strap_type}</span>}
+                      {p.case_size && <span className="fb text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,.05)", color: "var(--cd)" }}>{p.case_size}</span>}
+                    </div>
+                    {p.notes && <div className="fb text-xs mt-2" style={{ color: "var(--cd)" }}>{p.notes}</div>}
+                  </div>
+                </Cd>;
+              })}
+            </div>
+          )}
+        </div>;
+      })()}
 
       {/* ─── PROVEEDORES ─── */}
       {catTab === "proveedores" && (
